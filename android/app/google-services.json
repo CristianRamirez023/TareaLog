@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "511621212818",
+    "project_id": "loginflutter-c5ffa",
+    "storage_bucket": "loginflutter-c5ffa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:511621212818:android:ac33e3e35bfe6de9e5144b",
+        "android_client_info": {
+          "package_name": "com.example.tarealog"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpbHLM-VxQV6JenBy2adw0UkdU2srgtJk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
