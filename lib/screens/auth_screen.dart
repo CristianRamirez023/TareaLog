@@ -20,6 +20,9 @@ class _AuthScreenState extends State<AuthScreen> {
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
 
+  // Color azul oscuro personalizado para las letras de los botones
+  final Color _darkBlueColor = const Color(0xFF0D47A1);
+
   Future<void> _submitAuthForm() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -127,10 +130,16 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: _darkBlueColor,
+            ),
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              foregroundColor: _darkBlueColor,
+            ),
             onPressed: _resetPassword,
             child: const Text('Enviar'),
           ),
@@ -206,6 +215,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
               if (isLogin) ...[
                 TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: _darkBlueColor,
+                  ),
                   onPressed: _showResetPasswordDialog,
                   child: const Text('¿Olvidaste tu contraseña?'),
                 ),
@@ -216,10 +228,16 @@ class _AuthScreenState extends State<AuthScreen> {
                 const CircularProgressIndicator()
               else
                 ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    foregroundColor: _darkBlueColor,
+                  ),
                   onPressed: _submitAuthForm,
                   child: Text(isLogin ? 'Ingresar' : 'Registrar Cuenta'),
                 ),
               TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: _darkBlueColor,
+                ),
                 onPressed: () => setState(() => isLogin = !isLogin),
                 child: Text(
                   isLogin
