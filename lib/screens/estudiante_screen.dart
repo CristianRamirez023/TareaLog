@@ -61,7 +61,6 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     if (title.isEmpty || user == null) return;
 
     try {
-      // 1.1 Obtiene el verificadorId asignado en el perfil del estudiante
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -69,10 +68,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
 
       final String? verifierId = userDoc.data()?['verificadorId'];
 
-      // 1.2 Guarda la tarea asociando el ID del estudiante y del verificador
       await FirebaseFirestore.instance.collection('tasks').add({
         'userId': user.uid,
-        'verificadorId': verifierId, // Vinculación clave para el verificador
+        'verificadorId': verifierId,
         'title': title,
         'description': description,
         'isCompleted': false,
@@ -168,7 +166,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
       ),
       body: Column(
         children: [
-          // Banner Informativo del Código de Vinculación
+          // ================================================================
+          // Banner Informativo del Código de Vinculación (ADAPTADO AL TEMA)
+          // ================================================================
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('users')
@@ -180,17 +180,18 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
               final userData = snapshot.data!.data() as Map<String, dynamic>?;
               final String? inviteCode = userData?['inviteCode'];
               final String? verifierId = userData?['verificadorId'];
+              final colorScheme = Theme.of(context).colorScheme; // 👈
 
               return Card(
                 margin: const EdgeInsets.all(12),
-                color: Colors.blue.shade50,
+                color: colorScheme.primaryContainer, // 👈 CAMBIO 1
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Row(
                     children: [
                       Icon(
                         verifierId != null ? Icons.check_circle : Icons.key,
-                        color: _darkBlueColor,
+                        color: colorScheme.onPrimaryContainer, // 👈 CAMBIO 1
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -201,7 +202,10 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                               verifierId != null
                                   ? 'Verificador Vinculado'
                                   : 'Código de Vinculación',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onPrimaryContainer, // 👈 CAMBIO 1
+                              ),
                             ),
                             Text(
                               verifierId != null
@@ -209,7 +213,10 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                                   : (inviteCode != null
                                       ? 'Comparte este código: $inviteCode'
                                       : 'Genera un código para enlazar tu evaluador.'),
-                              style: const TextStyle(fontSize: 12),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.onPrimaryContainer, // 👈 CAMBIO 1
+                              ),
                             ),
                           ],
                         ),
@@ -217,8 +224,8 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                       if (verifierId == null)
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _darkBlueColor,
-                            foregroundColor: Colors.white,
+                            backgroundColor: colorScheme.primary, // 👈 CAMBIO 1
+                            foregroundColor: colorScheme.onPrimary, // 👈 CAMBIO 1
                           ),
                           onPressed: _createBindingCode,
                           child: Text(inviteCode == null ? 'Generar' : 'Nuevo'),
@@ -230,7 +237,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
             },
           ),
 
+          // ================================================================
           // Lista de Tareas en tiempo real
+          // ================================================================
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -325,10 +334,10 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
           ),
         ],
       ),
+      // 👇 CAMBIO 2: FloatingActionButton adaptado al tema
       floatingActionButton: FloatingActionButton(
-        backgroundColor: _darkBlueColor,
         onPressed: _showAddTaskDialog,
-        child: const Icon(Icons.add, color: Colors.white),
+        child: const Icon(Icons.add),
       ),
     );
   }

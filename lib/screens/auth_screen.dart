@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '/controllers/theme_controller.dart';
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final ThemeController themeController;
+
+  const AuthScreen({super.key, required this.themeController});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -19,9 +22,6 @@ class _AuthScreenState extends State<AuthScreen> {
 
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
-
-  // Color azul oscuro personalizado para las letras de los botones
-  final Color _darkBlueColor = const Color(0xFF0D47A1);
 
   Future<void> _submitAuthForm() async {
     final email = _emailController.text.trim();
@@ -47,7 +47,6 @@ class _AuthScreenState extends State<AuthScreen> {
           password: password,
         );
 
-        // Se agregan verificadorId e inviteCode para soportar la vinculación
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -112,42 +111,49 @@ class _AuthScreenState extends State<AuthScreen> {
     _resetEmailController.text = _emailController.text;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Restablecer contraseña'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Ingresa tu correo para recibir un enlace de recuperación.',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _resetEmailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Correo Electrónico',
-                border: OutlineInputBorder(),
+      builder: (ctx) {
+        final isDarkDialog =
+            Theme.of(ctx).brightness == Brightness.dark;
+        final azulDialog = isDarkDialog
+            ? const Color(0xFF64B5F6)
+            : const Color(0xFF0D47A1);
+
+        return AlertDialog(
+          title: const Text('Restablecer contraseña'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Ingresa tu correo para recibir un enlace de recuperación.',
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _resetEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Correo Electrónico',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: azulDialog),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: azulDialog,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _resetPassword,
+              child: const Text('Enviar'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: _darkBlueColor,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              foregroundColor: _darkBlueColor,
-            ),
-            onPressed: _resetPassword,
-            child: const Text('Enviar'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -160,11 +166,61 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  void _showThemeSelector() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.light_mode),
+              title: const Text('Modo Claro'),
+              onTap: () {
+                widget.themeController.setThemeMode(ThemeMode.light);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.dark_mode),
+              title: const Text('Modo Oscuro'),
+              onTap: () {
+                widget.themeController.setThemeMode(ThemeMode.dark);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_suggest),
+              title: const Text('Predeterminado del sistema'),
+              onTap: () {
+                widget.themeController.setThemeMode(ThemeMode.system);
+                Navigator.pop(ctx);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final Color azulApp = isDark
+        ? const Color(0xFF64B5F6)
+        : const Color(0xFF0D47A1);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'),
+        actions: [
+          IconButton(
+            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+            tooltip: 'Cambiar tema',
+            onPressed: _showThemeSelector,
+          ),
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -173,6 +229,34 @@ class _AuthScreenState extends State<AuthScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // ==========================================================
+              // TÍTULO
+              // ==========================================================
+              const SizedBox(height: 20),
+              Text(
+                'TareaLog',
+                style: TextStyle(
+                  fontSize: 42,
+                  fontWeight: FontWeight.bold,
+                  color: azulApp,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Organiza tus tareas',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark
+                      ? const Color(0xFF90CAF9)
+                      : const Color(0xFF1565C0),
+                ),
+              ),
+              const SizedBox(height: 40),
+
+              // ==========================================================
+              // FORMULARIO
+              // ==========================================================
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -216,31 +300,32 @@ class _AuthScreenState extends State<AuthScreen> {
                 const SizedBox(height: 12),
               ],
 
-              if (isLogin) ...[
-                TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: _darkBlueColor,
-                  ),
-                  onPressed: _showResetPasswordDialog,
-                  child: const Text('¿Olvidaste tu contraseña?'),
-                ),
-                const SizedBox(height: 8),
-              ],
-
+              // 👇 BOTÓN INGRESAR (ahora va primero)
               if (isLoading)
                 const CircularProgressIndicator()
               else
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    foregroundColor: _darkBlueColor,
+                    backgroundColor: azulApp,
+                    foregroundColor: Colors.white,
                   ),
                   onPressed: _submitAuthForm,
                   child: Text(isLogin ? 'Ingresar' : 'Registrar Cuenta'),
                 ),
-              TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: _darkBlueColor,
+
+              // 👇 "¿OLVIDASTE TU CONTRASEÑA?" (ahora va después)
+              if (isLogin) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  style: TextButton.styleFrom(foregroundColor: azulApp),
+                  onPressed: _showResetPasswordDialog,
+                  child: const Text('¿Olvidaste tu contraseña?'),
                 ),
+              ],
+
+              // 👇 Cambiar entre login/registro
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: azulApp),
                 onPressed: () => setState(() => isLogin = !isLogin),
                 child: Text(
                   isLogin
