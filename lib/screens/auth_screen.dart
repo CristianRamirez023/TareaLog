@@ -47,12 +47,15 @@ class _AuthScreenState extends State<AuthScreen> {
           password: password,
         );
 
+        // Se agregan verificadorId e inviteCode para soportar la vinculación
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
             .set({
           'email': email,
           'role': _selectedRole,
+          'verificadorId': null,
+          'inviteCode': null,
           'createdAt': Timestamp.now(),
         });
       }
