@@ -4,10 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'estudiante_screen.dart';
 import 'verificador_screen.dart';
-import '/controllers/theme_controller.dart'; // 👈 ajusta la ruta
+import '/controllers/theme_controller.dart';
 
 class PrincipalScreen extends StatefulWidget {
-  final ThemeController themeController; // 👈 nuevo
+  final ThemeController themeController;
 
   const PrincipalScreen({super.key, required this.themeController});
 
@@ -50,44 +50,11 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     }
   }
 
-  // 👇 Muestra un bottom sheet con las 3 opciones de tema
-  void _showThemeSelector() {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.light_mode),
-                title: const Text('Modo Claro'),
-                onTap: () {
-                  widget.themeController.setThemeMode(ThemeMode.light);
-                  Navigator.pop(ctx);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.dark_mode),
-                title: const Text('Modo Oscuro'),
-                onTap: () {
-                  widget.themeController.setThemeMode(ThemeMode.dark);
-                  Navigator.pop(ctx);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings_suggest),
-                title: const Text('Predeterminado del sistema'),
-                onTap: () {
-                  widget.themeController.setThemeMode(ThemeMode.system);
-                  Navigator.pop(ctx);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  // 👇 NUEVO: Alterna entre claro y oscuro directamente
+  void _toggleTheme() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    widget.themeController
+        .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
   }
 
   @override
@@ -100,13 +67,15 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
             ? 'TareaLog - Panel Verificador'
             : 'TareaLog - Estudiante'),
         actions: [
+          // 👇 Cambia directamente entre claro y oscuro
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-            tooltip: 'Cambiar tema',
-            onPressed: _showThemeSelector,
+            tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
+            onPressed: _toggleTheme,
           ),
           IconButton(
             icon: const Icon(Icons.exit_to_app),
+            tooltip: 'Cerrar sesión',
             onPressed: () => FirebaseAuth.instance.signOut(),
           ),
         ],

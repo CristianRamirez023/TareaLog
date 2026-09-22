@@ -16,6 +16,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _resetEmailController = TextEditingController();
+  final _nameController = TextEditingController();
 
   bool isLogin = true;
   bool isLoading = false;
@@ -26,9 +27,15 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _submitAuthForm() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
+    final name = _nameController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
       _showSnackBar('Por favor llena todos los campos', isError: true);
+      return;
+    }
+
+    if (!isLogin && name.isEmpty) {
+      _showSnackBar('Por favor ingresa tu nombre', isError: true);
       return;
     }
 
@@ -52,6 +59,7 @@ class _AuthScreenState extends State<AuthScreen> {
             .doc(userCredential.user!.uid)
             .set({
           'email': email,
+          'name': name,
           'role': _selectedRole,
           'verificadorId': null,
           'inviteCode': null,
@@ -112,12 +120,7 @@ class _AuthScreenState extends State<AuthScreen> {
     showDialog(
       context: context,
       builder: (ctx) {
-        final isDarkDialog =
-            Theme.of(ctx).brightness == Brightness.dark;
-        final azulDialog = isDarkDialog
-            ? const Color(0xFF64B5F6)
-            : const Color(0xFF0D47A1);
-
+        final colorScheme = Theme.of(ctx).colorScheme;
         return AlertDialog(
           title: const Text('Restablecer contraseña'),
           content: Column(
@@ -139,14 +142,14 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
           actions: [
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: azulDialog),
+              style: TextButton.styleFrom(foregroundColor: colorScheme.primary),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: azulDialog,
-                foregroundColor: Colors.white,
+                backgroundColor: colorScheme.primary,
+                foregroundColor: colorScheme.onPrimary,
               ),
               onPressed: _resetPassword,
               child: const Text('Enviar'),
@@ -166,59 +169,27 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  void _showThemeSelector() {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.light_mode),
-              title: const Text('Modo Claro'),
-              onTap: () {
-                widget.themeController.setThemeMode(ThemeMode.light);
-                Navigator.pop(ctx);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.dark_mode),
-              title: const Text('Modo Oscuro'),
-              onTap: () {
-                widget.themeController.setThemeMode(ThemeMode.dark);
-                Navigator.pop(ctx);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings_suggest),
-              title: const Text('Predeterminado del sistema'),
-              onTap: () {
-                widget.themeController.setThemeMode(ThemeMode.system);
-                Navigator.pop(ctx);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+  // 👇 NUEVO: Alterna entre claro y oscuro directamente
+  void _toggleTheme() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    widget.themeController
+        .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final Color azulApp = isDark
-        ? const Color(0xFF64B5F6)
-        : const Color(0xFF0D47A1);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'),
         actions: [
+          // 👇 Cambia directamente entre claro y oscuro
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-            tooltip: 'Cambiar tema',
-            onPressed: _showThemeSelector,
+            tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
+            onPressed: _toggleTheme,
           ),
         ],
       ),
@@ -229,16 +200,13 @@ class _AuthScreenState extends State<AuthScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // ==========================================================
-              // TÍTULO
-              // ==========================================================
               const SizedBox(height: 20),
               Text(
                 'TareaLog',
                 style: TextStyle(
                   fontSize: 42,
                   fontWeight: FontWeight.bold,
-                  color: azulApp,
+                  color: colorScheme.primary,
                   letterSpacing: 1.5,
                 ),
               ),
@@ -254,9 +222,6 @@ class _AuthScreenState extends State<AuthScreen> {
               ),
               const SizedBox(height: 40),
 
-              // ==========================================================
-              // FORMULARIO
-              // ==========================================================
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -277,6 +242,15 @@ class _AuthScreenState extends State<AuthScreen> {
               const SizedBox(height: 12),
 
               if (!isLogin) ...[
+                TextField(
+                  controller: _nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre completo',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: _selectedRole,
                   decoration: const InputDecoration(
@@ -300,32 +274,33 @@ class _AuthScreenState extends State<AuthScreen> {
                 const SizedBox(height: 12),
               ],
 
-              // 👇 BOTÓN INGRESAR (ahora va primero)
               if (isLoading)
                 const CircularProgressIndicator()
               else
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: azulApp,
-                    foregroundColor: Colors.white,
+                    backgroundColor: colorScheme.primary,
+                    foregroundColor: colorScheme.onPrimary,
                   ),
                   onPressed: _submitAuthForm,
                   child: Text(isLogin ? 'Ingresar' : 'Registrar Cuenta'),
                 ),
 
-              // 👇 "¿OLVIDASTE TU CONTRASEÑA?" (ahora va después)
               if (isLogin) ...[
                 const SizedBox(height: 8),
                 TextButton(
-                  style: TextButton.styleFrom(foregroundColor: azulApp),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.primary,
+                  ),
                   onPressed: _showResetPasswordDialog,
                   child: const Text('¿Olvidaste tu contraseña?'),
                 ),
               ],
 
-              // 👇 Cambiar entre login/registro
               TextButton(
-                style: TextButton.styleFrom(foregroundColor: azulApp),
+                style: TextButton.styleFrom(
+                  foregroundColor: colorScheme.primary,
+                ),
                 onPressed: () => setState(() => isLogin = !isLogin),
                 child: Text(
                   isLogin

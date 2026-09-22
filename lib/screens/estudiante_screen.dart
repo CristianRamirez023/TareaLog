@@ -13,18 +13,18 @@ class EstudianteScreen extends StatefulWidget {
 class _EstudianteScreenState extends State<EstudianteScreen> {
   final _taskTitleController = TextEditingController();
   final _taskDescController = TextEditingController();
-  final Color _darkBlueColor = const Color(0xFF0D47A1);
 
-  // Genera un código aleatorio de 6 caracteres (ej. TRG-8A92)
+  // Genera un código aleatorio de 6 caracteres
   String _generateShortCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final random = Random();
-    return List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
+    return List.generate(6, (index) => chars[random.nextInt(chars.length)])
+        .join();
   }
 
-  // ===========================================================================
-  // VINCULACIÓN: Genera y guarda un nuevo código de invitación en Firestore
-  // ===========================================================================
+  // =========================================================================
+  // VINCULACIÓN: Genera y guarda un nuevo código de invitación
+  // =========================================================================
   Future<void> _createBindingCode() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -32,7 +32,10 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     final newCode = 'TRG-${_generateShortCode()}';
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update({
         'inviteCode': newCode,
       });
 
@@ -50,9 +53,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     }
   }
 
-  // ===========================================================================
-  // 1. CREAR: Guardar tarea incluyendo el 'verificadorId' actual del alumno
-  // ===========================================================================
+  // =========================================================================
+  // CREAR: Guardar tarea
+  // =========================================================================
   Future<void> _addTask() async {
     final title = _taskTitleController.text.trim();
     final description = _taskDescController.text.trim();
@@ -75,6 +78,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
         'description': description,
         'isCompleted': false,
         'status': 'Pendiente',
+        'feedback': '',
         'createdAt': Timestamp.now(),
       });
 
@@ -90,9 +94,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     }
   }
 
-  // ===========================================================================
-  // 2. ACTUALIZAR: Alternar el estado de completado
-  // ===========================================================================
+  // =========================================================================
+  // ACTUALIZAR: Alternar estado
+  // =========================================================================
   Future<void> _toggleTaskStatus(String taskId, bool currentStatus) async {
     await FirebaseFirestore.instance
         .collection('tasks')
@@ -100,244 +104,399 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
         .update({'isCompleted': !currentStatus});
   }
 
-  // ===========================================================================
-  // 3. ELIMINAR: Borrar documento de la tarea
-  // ===========================================================================
+  // =========================================================================
+  // ELIMINAR
+  // =========================================================================
   Future<void> _deleteTask(String taskId) async {
     await FirebaseFirestore.instance.collection('tasks').doc(taskId).delete();
   }
 
-  // ===========================================================================
+  // =========================================================================
   // DIÁLOGO CREAR TAREA
-  // ===========================================================================
+  // =========================================================================
   void _showAddTaskDialog() {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Nueva Tarea'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _taskTitleController,
-              decoration: const InputDecoration(
-                labelText: 'Título de la tarea',
-                border: OutlineInputBorder(),
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: const Text('Nueva Tarea'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _taskTitleController,
+                decoration: const InputDecoration(
+                  labelText: 'Título de la tarea',
+                  border: OutlineInputBorder(),
+                ),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _taskDescController,
+                decoration: const InputDecoration(
+                  labelText: 'Descripción (Opcional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: colorScheme.primary),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancelar'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _taskDescController,
-              decoration: const InputDecoration(
-                labelText: 'Descripción (Opcional)',
-                border: OutlineInputBorder(),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colorScheme.primary,
+                foregroundColor: colorScheme.onPrimary,
               ),
+              onPressed: _addTask,
+              child: const Text('Guardar'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: _darkBlueColor),
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _darkBlueColor,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: _addTask,
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Panel de Estudiante'),
-        backgroundColor: _darkBlueColor,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          // ================================================================
-          // Banner Informativo del Código de Vinculación (ADAPTADO AL TEMA)
-          // ================================================================
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .doc(user?.uid)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const SizedBox.shrink();
-
-              final userData = snapshot.data!.data() as Map<String, dynamic>?;
-              final String? inviteCode = userData?['inviteCode'];
-              final String? verifierId = userData?['verificadorId'];
-              final colorScheme = Theme.of(context).colorScheme; // 👈
-
-              return Card(
-                margin: const EdgeInsets.all(12),
-                color: colorScheme.primaryContainer, // 👈 CAMBIO 1
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        verifierId != null ? Icons.check_circle : Icons.key,
-                        color: colorScheme.onPrimaryContainer, // 👈 CAMBIO 1
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              verifierId != null
-                                  ? 'Verificador Vinculado'
-                                  : 'Código de Vinculación',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: colorScheme.onPrimaryContainer, // 👈 CAMBIO 1
-                              ),
-                            ),
-                            Text(
-                              verifierId != null
-                                  ? 'Tus tareas serán revisadas por tu evaluador.'
-                                  : (inviteCode != null
-                                      ? 'Comparte este código: $inviteCode'
-                                      : 'Genera un código para enlazar tu evaluador.'),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: colorScheme.onPrimaryContainer, // 👈 CAMBIO 1
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (verifierId == null)
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: colorScheme.primary, // 👈 CAMBIO 1
-                            foregroundColor: colorScheme.onPrimary, // 👈 CAMBIO 1
-                          ),
-                          onPressed: _createBindingCode,
-                          child: Text(inviteCode == null ? 'Generar' : 'Nuevo'),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-
-          // ================================================================
-          // Lista de Tareas en tiempo real
-          // ================================================================
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+    return Stack(
+      children: [
+        Column(
+          children: [
+            // =========================================================
+            // SALUDO + BANNER DE VINCULACIÓN
+            // =========================================================
+            StreamBuilder<DocumentSnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('tasks')
-                  .where('userId', isEqualTo: user?.uid)
+                  .collection('users')
+                  .doc(user?.uid)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                if (!snapshot.hasData) return const SizedBox.shrink();
 
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'No tienes tareas aún.\n¡Presiona + para agregar una!',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
-                  );
-                }
+                final userData =
+                    snapshot.data!.data() as Map<String, dynamic>?;
+                final String? inviteCode = userData?['inviteCode'];
+                final String? verifierId = userData?['verificadorId'];
+                final String name = userData?['name'] ?? 'Estudiante';
 
-                final tasks = snapshot.data!.docs;
-
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: tasks.length,
-                  itemBuilder: (context, index) {
-                    final taskDoc = tasks[index];
-                    final taskData = taskDoc.data() as Map<String, dynamic>;
-                    final bool isCompleted = taskData['isCompleted'] ?? false;
-                    final String status = taskData['status'] ?? 'Pendiente';
-                    final String feedback = taskData['feedback'] ?? '';
-
-                    return Card(
-                      elevation: 2,
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      child: ListTile(
-                        leading: Checkbox(
-                          value: isCompleted,
-                          activeColor: _darkBlueColor,
-                          onChanged: (_) =>
-                              _toggleTaskStatus(taskDoc.id, isCompleted),
-                        ),
-                        title: Text(
-                          taskData['title'] ?? '',
-                          style: TextStyle(
-                            decoration: isCompleted
-                                ? TextDecoration.lineThrough
-                                : TextDecoration.none,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (taskData['description'] != null &&
-                                taskData['description'].toString().isNotEmpty)
-                              Text(taskData['description']),
-                            Text(
-                              'Estado Evaluador: $status',
-                              style: TextStyle(
-                                fontSize: 12,
+                return Column(
+                  children: [
+                    // Saludo
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: colorScheme.primary,
+                            foregroundColor: colorScheme.onPrimary,
+                            child: Text(
+                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                              style: const TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: status == 'Aprobado'
-                                    ? Colors.green
-                                    : (status == 'Rechazado'
-                                        ? Colors.red
-                                        : Colors.orange),
                               ),
                             ),
-                            if (feedback.isNotEmpty)
-                              Text(
-                                'Obs: $feedback',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontStyle: FontStyle.italic,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Bienvenido de vuelta,',
+                                  style: TextStyle(fontSize: 12),
                                 ),
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Card de vinculación
+                    Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12),
+                      color: colorScheme.primaryContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          children: [
+                            Icon(
+                              verifierId != null
+                                  ? Icons.check_circle
+                                  : Icons.key,
+                              color: colorScheme.onPrimaryContainer,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    verifierId != null
+                                        ? 'Verificador Vinculado'
+                                        : 'Código de Vinculación',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: colorScheme.onPrimaryContainer,
+                                    ),
+                                  ),
+                                  Text(
+                                    verifierId != null
+                                        ? 'Tus tareas serán revisadas por tu evaluador.'
+                                        : (inviteCode != null
+                                            ? 'Comparte este código: $inviteCode'
+                                            : 'Genera un código para enlazar tu evaluador.'),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: colorScheme.onPrimaryContainer,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (verifierId == null)
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: colorScheme.primary,
+                                  foregroundColor: colorScheme.onPrimary,
+                                ),
+                                onPressed: _createBindingCode,
+                                child: Text(
+                                    inviteCode == null ? 'Generar' : 'Nuevo'),
                               ),
                           ],
                         ),
-                        trailing: IconButton(
-                          icon:
-                              const Icon(Icons.delete, color: Colors.redAccent),
-                          onPressed: () => _deleteTask(taskDoc.id),
-                        ),
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 );
               },
             ),
+
+            // =========================================================
+            // ESTADÍSTICAS + LISTA DE TAREAS
+            // =========================================================
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('tasks')
+                    .where('userId', isEqualTo: user?.uid)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final tasks = snapshot.data?.docs ?? [];
+
+                  int pendientes = 0;
+                  int aprobadas = 0;
+                  int rechazadas = 0;
+
+                  for (var doc in tasks) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final status = data['status'] ?? 'Pendiente';
+                    if (status == 'Aprobado') {
+                      aprobadas++;
+                    } else if (status == 'Rechazado') {
+                      rechazadas++;
+                    } else {
+                      pendientes++;
+                    }
+                  }
+
+                  return Column(
+                    children: [
+                      // Estadísticas
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            _buildStatCard(
+                              'Pendientes',
+                              pendientes,
+                              Colors.orange,
+                              Icons.pending_actions,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildStatCard(
+                              'Aprobadas',
+                              aprobadas,
+                              Colors.green,
+                              Icons.check_circle,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildStatCard(
+                              'Rechazadas',
+                              rechazadas,
+                              Colors.red,
+                              Icons.cancel,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Lista
+                      Expanded(
+                        child: tasks.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'No tienes tareas aún.\n¡Presiona + para agregar una!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                itemCount: tasks.length,
+                                itemBuilder: (context, index) {
+                                  final taskDoc = tasks[index];
+                                  final taskData =
+                                      taskDoc.data() as Map<String, dynamic>;
+                                  final bool isCompleted =
+                                      taskData['isCompleted'] ?? false;
+                                  final String status =
+                                      taskData['status'] ?? 'Pendiente';
+                                  final String feedback =
+                                      taskData['feedback'] ?? '';
+
+                                  return Card(
+                                    elevation: 2,
+                                    margin: const EdgeInsets.symmetric(
+                                      vertical: 6,
+                                    ),
+                                    child: ListTile(
+                                      leading: Checkbox(
+                                        value: isCompleted,
+                                        activeColor: colorScheme.primary,
+                                        onChanged: (_) => _toggleTaskStatus(
+                                          taskDoc.id,
+                                          isCompleted,
+                                        ),
+                                      ),
+                                      title: Text(
+                                        taskData['title'] ?? '',
+                                        style: TextStyle(
+                                          decoration: isCompleted
+                                              ? TextDecoration.lineThrough
+                                              : TextDecoration.none,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      subtitle: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (taskData['description'] !=
+                                                  null &&
+                                              taskData['description']
+                                                  .toString()
+                                                  .isNotEmpty)
+                                            Text(taskData['description']),
+                                          Text(
+                                            'Estado: $status',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: status == 'Aprobado'
+                                                  ? Colors.green
+                                                  : (status == 'Rechazado'
+                                                      ? Colors.red
+                                                      : Colors.orange),
+                                            ),
+                                          ),
+                                          if (feedback.isNotEmpty)
+                                            Text(
+                                              'Obs: $feedback',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      trailing: IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.redAccent,
+                                        ),
+                                        onPressed: () =>
+                                            _deleteTask(taskDoc.id),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+
+        // Botón flotante
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            onPressed: _showAddTaskDialog,
+            child: const Icon(Icons.add),
           ),
-        ],
-      ),
-      // 👇 CAMBIO 2: FloatingActionButton adaptado al tema
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddTaskDialog,
-        child: const Icon(Icons.add),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(
+      String label, int count, Color color, IconData icon) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(height: 4),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 11),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
