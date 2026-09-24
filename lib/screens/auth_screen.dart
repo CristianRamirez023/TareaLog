@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '/controllers/theme_controller.dart';
+import 'politica_datos_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   final ThemeController themeController;
@@ -20,6 +21,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool isLogin = true;
   bool isLoading = false;
+  bool _acceptedPolicy = false; // 👈 NUEVO
 
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
@@ -36,6 +38,15 @@ class _AuthScreenState extends State<AuthScreen> {
 
     if (!isLogin && name.isEmpty) {
       _showSnackBar('Por favor ingresa tu nombre', isError: true);
+      return;
+    }
+
+    // 👈 VALIDACIÓN: Debe aceptar la política para registrarse
+    if (!isLogin && !_acceptedPolicy) {
+      _showSnackBar(
+        'Debes aceptar la Política de Tratamiento de Datos',
+        isError: true,
+      );
       return;
     }
 
@@ -63,6 +74,8 @@ class _AuthScreenState extends State<AuthScreen> {
           'role': _selectedRole,
           'verificadorId': null,
           'inviteCode': null,
+          'acceptedPolicy': true, // 👈 NUEVO: registro de aceptación
+          'acceptedPolicyAt': Timestamp.now(), // 👈 NUEVO
           'createdAt': Timestamp.now(),
         });
       }
@@ -169,11 +182,21 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // 👇 NUEVO: Alterna entre claro y oscuro directamente
+  // 👇 Alterna entre claro y oscuro directamente
   void _toggleTheme() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     widget.themeController
         .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
+  }
+
+  // 👇 Navega a la pantalla de política de datos
+  void _openPolicy() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => const PoliticaDatosScreen(),
+      ),
+    );
   }
 
   @override
@@ -185,7 +208,6 @@ class _AuthScreenState extends State<AuthScreen> {
       appBar: AppBar(
         title: Text(isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'),
         actions: [
-          // 👇 Cambia directamente entre claro y oscuro
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
             tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
@@ -271,7 +293,58 @@ class _AuthScreenState extends State<AuthScreen> {
                     }
                   },
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+
+                // 👇 CHECKBOX DE ACEPTACIÓN DE POLÍTICA
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _acceptedPolicy
+                          ? colorScheme.primary
+                          : Colors.grey.shade400,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: _acceptedPolicy,
+                        activeColor: colorScheme.primary,
+                        onChanged: (value) {
+                          setState(() => _acceptedPolicy = value ?? false);
+                        },
+                      ),
+                      Expanded(
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            const Text(
+                              'Acepto la ',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            GestureDetector(
+                              onTap: _openPolicy,
+                              child: Text(
+                                'Política de Tratamiento de Datos',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
               ],
 
               if (isLoading)
@@ -281,6 +354,10 @@ class _AuthScreenState extends State<AuthScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: colorScheme.primary,
                     foregroundColor: colorScheme.onPrimary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: 12,
+                    ),
                   ),
                   onPressed: _submitAuthForm,
                   child: Text(isLogin ? 'Ingresar' : 'Registrar Cuenta'),
@@ -301,13 +378,36 @@ class _AuthScreenState extends State<AuthScreen> {
                 style: TextButton.styleFrom(
                   foregroundColor: colorScheme.primary,
                 ),
-                onPressed: () => setState(() => isLogin = !isLogin),
+                onPressed: () {
+                  setState(() {
+                    isLogin = !isLogin;
+                    // Reset del checkbox al cambiar de modo
+                    if (isLogin) _acceptedPolicy = false;
+                  });
+                },
                 child: Text(
                   isLogin
                       ? '¿No tienes cuenta? Regístrate aquí'
                       : '¿Ya tienes cuenta? Inicia sesión',
                 ),
               ),
+
+              // 👇 Nota legal al pie
+              if (isLogin)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: TextButton(
+                    onPressed: _openPolicy,
+                    child: Text(
+                      'Ver Política de Tratamiento de Datos',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
