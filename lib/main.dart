@@ -7,6 +7,10 @@ import 'screens/auth_screen.dart';
 import 'screens/principal_screen.dart';
 import 'controllers/theme_controller.dart';
 
+// 👈 CLAVE GLOBAL DEL NAVIGATOR
+// Permite acceder al Navigator desde cualquier parte de la app
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -27,7 +31,6 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final ThemeController _themeController = ThemeController();
 
-  // 🎨 Colores de la marca TareaLog
   static const Color _azulOscuro = Color(0xFF0D47A1);
   static const Color _azulClaro = Color(0xFF64B5F6);
   static const Color _azulMedio = Color(0xFF1565C0);
@@ -41,6 +44,7 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'TareaLog',
+          navigatorKey: navigatorKey, // 👈 ASIGNAR CLAVE GLOBAL
 
           // ☀️ TEMA CLARO
           theme: ThemeData(
@@ -82,7 +86,6 @@ class _MyAppState extends State<MyApp> {
 
           themeMode: _themeController.themeMode,
 
-          // StreamBuilder como guardián de rutas
           home: StreamBuilder<User?>(
             stream: FirebaseAuth.instance.authStateChanges(),
             builder: (context, snapshot) {
