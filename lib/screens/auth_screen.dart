@@ -1,18 +1,17 @@
 // ============================================================================
 // PANTALLA DE AUTENTICACIÓN (LOGIN / REGISTRO)
 // ----------------------------------------------------------------------------
-// Esta pantalla permite:
-// - Iniciar sesión con correo y contraseña
-// - Registrar una cuenta nueva con nombre + rol
-// - Restablecer contraseña por correo
-// - Aceptar la Política de Tratamiento de Datos (solo en registro)
-// - Alternar entre modo claro/oscuro
+// - Login y registro con Firebase Auth
+// - Verificación con CAPTCHA visual antes de continuar
+// - Aceptación de Política de Datos (solo registro)
+// - Toggle de tema claro/oscuro
 // ============================================================================
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '/controllers/theme_controller.dart';
+import '../widgets/recaptcha_dialog.dart'; // 👈 CAPTCHA visual
 import 'politica_datos_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -25,10 +24,8 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-
   // ==========================================================================
-  // CONTROLADORES DE CAMPOS DE TEXTO
-  // Cada uno gestiona el texto que el usuario escribe en los TextField.
+  // CONTROLADORES DE CAMPOS
   // ==========================================================================
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -38,36 +35,32 @@ class _AuthScreenState extends State<AuthScreen> {
   // ==========================================================================
   // VARIABLES DE ESTADO
   // ==========================================================================
-  bool isLogin = true;            // true = login | false = registro
-  bool isLoading = false;         // true = muestra spinner mientras procesa
-  bool _acceptedPolicy = false;   // true = aceptó la política de datos
+  bool isLogin = true;
+  bool isLoading = false;
+  bool _acceptedPolicy = false;
 
-  // Lista de roles disponibles y rol actualmente seleccionado
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
 
   // ==========================================================================
-  // ENVÍO DEL FORMULARIO (LOGIN O REGISTRO SEGÚN isLogin)
+  // ENVÍO DEL FORMULARIO (LOGIN O REGISTRO)
   // ==========================================================================
   Future<void> _submitAuthForm() async {
-    // Obtener los valores de los campos y quitar espacios extra
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
 
-    // ---------- VALIDACIÓN: campos vacíos ----------
+    // ---------- VALIDACIONES ----------
     if (email.isEmpty || password.isEmpty) {
       _showSnackBar('Por favor llena todos los campos', isError: true);
       return;
     }
 
-    // ---------- VALIDACIÓN: nombre obligatorio al registrarse ----------
     if (!isLogin && name.isEmpty) {
       _showSnackBar('Por favor ingresa tu nombre', isError: true);
       return;
     }
 
-    // ---------- VALIDACIÓN: aceptar política al registrarse ----------
     if (!isLogin && !_acceptedPolicy) {
       _showSnackBar(
         'Debes aceptar la Política de Tratamiento de Datos',
@@ -76,31 +69,32 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    // Activar el spinner de carga
+    // ==========================================================================
+    // 👇 CAPTCHA VISUAL ANTES DE CONTINUAR
+    // ==========================================================================
+    final captchaPassed = await RecaptchaDialog.show(context);
+
+    if (!captchaPassed) {
+      _showSnackBar('Verificación de seguridad cancelada', isError: true);
+      return;
+    }
+
+    // ---------- LOGIN / REGISTRO ----------
     setState(() => isLoading = true);
 
     try {
       if (isLogin) {
-        // ==================================================================
-        // 🔐 LOGIN CON FIREBASE AUTH
-        // ==================================================================
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
       } else {
-        // ==================================================================
-        // 📝 REGISTRO CON FIREBASE AUTH
-        // 1. Crea el usuario en Authentication
-        // 2. Guarda sus datos en Firestore (users/{uid})
-        // ==================================================================
         UserCredential userCredential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(
           email: email,
           password: password,
         );
 
-        // Guardar datos del usuario en Firestore
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -110,16 +104,12 @@ class _AuthScreenState extends State<AuthScreen> {
           'role': _selectedRole,
           'verificadorId': null,
           'inviteCode': null,
-          'acceptedPolicy': true,           // Registro de aceptación
-          'acceptedPolicyAt': Timestamp.now(), // Fecha de aceptación
+          'acceptedPolicy': true,
+          'acceptedPolicyAt': Timestamp.now(),
           'createdAt': Timestamp.now(),
         });
       }
     } on FirebaseAuthException catch (e) {
-      // ==================================================================
-      // ❌ MANEJO DE ERRORES DE FIREBASE AUTH
-      // Traducimos los códigos de error a mensajes en español.
-      // ==================================================================
       String mensajeError = 'Ocurrió un error en la autenticación.';
 
       if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
@@ -136,10 +126,8 @@ class _AuthScreenState extends State<AuthScreen> {
 
       _showSnackBar(mensajeError, isError: true);
     } catch (e) {
-      // Cualquier otro error inesperado
       _showSnackBar('Error al procesar la solicitud', isError: true);
     } finally {
-      // Desactivar el spinner SIEMPRE (haya éxito o error)
       if (mounted) {
         setState(() => isLoading = false);
       }
@@ -147,8 +135,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   // ==========================================================================
-  // 🔑 RESTABLECER CONTRASEÑA POR CORREO
-  // Envía un enlace de recuperación al correo ingresado.
+  // RESTABLECER CONTRASEÑA
   // ==========================================================================
   Future<void> _resetPassword() async {
     final email = _resetEmailController.text.trim();
@@ -161,7 +148,7 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (mounted) {
-        Navigator.of(context).pop(); // Cerrar el diálogo
+        Navigator.of(context).pop();
         _showSnackBar('Correo de restablecimiento enviado', isError: false);
       }
     } on FirebaseAuthException catch (e) {
@@ -176,11 +163,9 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   // ==========================================================================
-  // 💬 DIÁLOGO DE RESTABLECER CONTRASEÑA
-  // Muestra un AlertDialog con un TextField para ingresar el correo.
+  // DIÁLOGO DE RESTABLECER CONTRASEÑA
   // ==========================================================================
   void _showResetPasswordDialog() {
-    // Pre-rellenar con el correo que ya escribió en el login
     _resetEmailController.text = _emailController.text;
 
     showDialog(
@@ -207,13 +192,11 @@ class _AuthScreenState extends State<AuthScreen> {
             ],
           ),
           actions: [
-            // Botón cancelar
             TextButton(
               style: TextButton.styleFrom(foregroundColor: colorScheme.primary),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Cancelar'),
             ),
-            // Botón enviar correo
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: colorScheme.primary,
@@ -229,8 +212,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   // ==========================================================================
-  // 💬 HELPER: MOSTRAR SNACKBAR
-  // isError = true → fondo rojo | isError = false → fondo verde
+  // HELPER: SNACKBAR
   // ==========================================================================
   void _showSnackBar(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -242,8 +224,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   // ==========================================================================
-  // 🌗 ALTERNAR TEMA CLARO / OSCURO
-  // Un solo toque cambia entre los dos modos (según el actual).
+  // ALTERNAR TEMA
   // ==========================================================================
   void _toggleTheme() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -252,31 +233,14 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   // ==========================================================================
-  // 📄 NAVEGAR A LA PANTALLA DE POLÍTICA DE DATOS
-  // Se llama desde el checkbox de aceptación en el registro.
-  // ==========================================================================
-  void _openPolicy() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => const PoliticaDatosScreen(),
-      ),
-    );
-  }
-
-  // ==========================================================================
-  // 🎨 BUILD: CONSTRUCCIÓN DE LA INTERFAZ
+  // BUILD
   // ==========================================================================
   @override
   Widget build(BuildContext context) {
-    // Detecta si el tema actual es oscuro para adaptar colores
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      // ----------------------------------------------------------------------
-      // APPBAR: título dinámico + botón de cambiar tema
-      // ----------------------------------------------------------------------
       appBar: AppBar(
         title: Text(isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'),
         actions: [
@@ -287,10 +251,6 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ],
       ),
-
-      // ----------------------------------------------------------------------
-      // BODY: formulario con scroll (por si el teclado tapa contenido)
-      // ----------------------------------------------------------------------
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
@@ -325,7 +285,7 @@ class _AuthScreenState extends State<AuthScreen> {
               const SizedBox(height: 40),
 
               // ==============================================================
-              // CAMPO: CORREO ELECTRÓNICO (común para login y registro)
+              // CAMPO: CORREO
               // ==============================================================
               TextField(
                 controller: _emailController,
@@ -338,7 +298,7 @@ class _AuthScreenState extends State<AuthScreen> {
               const SizedBox(height: 12),
 
               // ==============================================================
-              // CAMPO: CONTRASEÑA (oculta con puntos)
+              // CAMPO: CONTRASEÑA
               // ==============================================================
               TextField(
                 controller: _passwordController,
@@ -351,11 +311,9 @@ class _AuthScreenState extends State<AuthScreen> {
               const SizedBox(height: 12),
 
               // ==============================================================
-              // CAMPOS EXCLUSIVOS DEL MODO REGISTRO
-              // Solo se muestran si NO estamos en modo login.
+              // CAMPOS EXCLUSIVOS DEL REGISTRO
               // ==============================================================
               if (!isLogin) ...[
-                // -------- Campo: Nombre completo --------
                 TextField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
@@ -366,7 +324,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // -------- Dropdown: Selección de Rol --------
                 DropdownButtonFormField<String>(
                   value: _selectedRole,
                   decoration: const InputDecoration(
@@ -387,8 +344,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // -------- Checkbox: Aceptar política de datos --------
-                // El borde cambia de color cuando se acepta
+                // ----- Checkbox de política de datos -----
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -404,7 +360,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   child: Row(
                     children: [
-                      // Checkbox
                       Checkbox(
                         value: _acceptedPolicy,
                         activeColor: colorScheme.primary,
@@ -412,7 +367,6 @@ class _AuthScreenState extends State<AuthScreen> {
                           setState(() => _acceptedPolicy = value ?? false);
                         },
                       ),
-                      // Texto con link a la política
                       Expanded(
                         child: Wrap(
                           crossAxisAlignment: WrapCrossAlignment.center,
@@ -422,7 +376,15 @@ class _AuthScreenState extends State<AuthScreen> {
                               style: TextStyle(fontSize: 13),
                             ),
                             GestureDetector(
-                              onTap: _openPolicy, // Abre la política
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) =>
+                                        const PoliticaDatosScreen(),
+                                  ),
+                                );
+                              },
                               child: Text(
                                 'Política de Tratamiento de Datos',
                                 style: TextStyle(
@@ -443,8 +405,7 @@ class _AuthScreenState extends State<AuthScreen> {
               ],
 
               // ==============================================================
-              // BOTÓN PRINCIPAL: Ingresar / Registrar Cuenta
-              // Muestra spinner mientras isLoading = true
+              // BOTÓN PRINCIPAL
               // ==============================================================
               if (isLoading)
                 const CircularProgressIndicator()
@@ -463,7 +424,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
 
               // ==============================================================
-              // LINK: ¿OLVIDASTE TU CONTRASEÑA? (solo en modo login)
+              // LINK: OLVIDÉ MI CONTRASEÑA (solo login)
               // ==============================================================
               if (isLogin) ...[
                 const SizedBox(height: 8),
@@ -477,8 +438,7 @@ class _AuthScreenState extends State<AuthScreen> {
               ],
 
               // ==============================================================
-              // LINK: CAMBIAR ENTRE LOGIN / REGISTRO
-              // Al cambiar, se resetea el checkbox de política
+              // LINK: CAMBIAR ENTRE LOGIN/REGISTRO
               // ==============================================================
               TextButton(
                 style: TextButton.styleFrom(
@@ -487,7 +447,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 onPressed: () {
                   setState(() {
                     isLogin = !isLogin;
-                    // Si volvemos a login, reseteamos la aceptación
                     if (isLogin) _acceptedPolicy = false;
                   });
                 },
