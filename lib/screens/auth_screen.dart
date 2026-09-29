@@ -5,13 +5,14 @@
 // - Verificación con CAPTCHA visual antes de continuar
 // - Aceptación de Política de Datos (solo registro)
 // - Toggle de tema claro/oscuro
+// - Mostrar/ocultar contraseña con ojito
 // ============================================================================
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '/controllers/theme_controller.dart';
-import '../widgets/recaptcha_dialog.dart'; // 👈 CAPTCHA visual
+import '../widgets/recaptcha_dialog.dart';
 import 'politica_datos_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -38,6 +39,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool isLoading = false;
   bool _acceptedPolicy = false;
+  bool _obscurePassword = true; // 👈 Controla el ojito de la contraseña
 
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
@@ -70,7 +72,7 @@ class _AuthScreenState extends State<AuthScreen> {
     }
 
     // ==========================================================================
-    // 👇 CAPTCHA VISUAL ANTES DE CONTINUAR
+    // 👇 CAPTCHA VISUAL
     // ==========================================================================
     final captchaPassed = await RecaptchaDialog.show(context);
 
@@ -293,19 +295,36 @@ class _AuthScreenState extends State<AuthScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Correo Electrónico',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email),
                 ),
               ),
               const SizedBox(height: 12),
 
               // ==============================================================
-              // CAMPO: CONTRASEÑA
+              // CAMPO: CONTRASEÑA CON OJITO 👁️
               // ==============================================================
               TextField(
                 controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: _obscurePassword, // 👈 Dinámico
+                decoration: InputDecoration(
                   labelText: 'Contraseña',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    tooltip: _obscurePassword
+                        ? 'Mostrar contraseña'
+                        : 'Ocultar contraseña',
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -320,6 +339,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Nombre completo',
                     border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -329,6 +349,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Selecciona tu Rol',
                     border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.badge),
                   ),
                   items: _roles.map((String role) {
                     return DropdownMenuItem<String>(
@@ -448,6 +469,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   setState(() {
                     isLogin = !isLogin;
                     if (isLogin) _acceptedPolicy = false;
+                    _obscurePassword = true; // 👈 Resetear el ojito
                   });
                 },
                 child: Text(
