@@ -1,12 +1,27 @@
+// ============================================================================
+// PANTALLA PRINCIPAL (ROUTER POR ROL)
+// ----------------------------------------------------------------------------
+// - Detecta el rol del usuario (Estudiante / Verificador)
+// - Muestra el dashboard correspondiente
+// - Toggle de tema claro/oscuro
+// - Descarga de reportes PDF y Excel
+// - Auto-logout (5 min) y bloqueo con contraseña (2.5 min)
+// ============================================================================
+
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'estudiante_screen.dart';
 import 'verificador_screen.dart';
+import '../services/pdf_service.dart';
+import '../services/excel_service.dart';
 import '/controllers/theme_controller.dart';
-import '../main.dart'; // 👈 Para usar navigatorKey
+import '../main.dart'; // 👈 Para acceder a navigatorKey
 
 class PrincipalScreen extends StatefulWidget {
   final ThemeController themeController;
@@ -21,6 +36,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   String? _userRole;
   bool _isLoadingRole = true;
 
+  // ==========================================================================
+  // ⏱️ TIMERS DE SEGURIDAD
+  // ==========================================================================
   static const Duration _lockDuration = Duration(minutes: 2, seconds: 30);
   static const Duration _logoutDuration = Duration(minutes: 5);
 
@@ -28,6 +46,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   Timer? _logoutTimer;
 
   bool _isLocked = false;
+  bool _isDownloading = false;
 
   @override
   void initState() {
@@ -43,6 +62,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     super.dispose();
   }
 
+  // ==========================================================================
+  // ⏱️ INICIAR / REINICIAR TIMERS
+  // ==========================================================================
   void _startTimers() {
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
@@ -60,30 +82,30 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     });
   }
 
+  // ==========================================================================
+  // 👆 REGISTRA ACTIVIDAD
+  // ==========================================================================
   void _registerActivity() {
     if (_isLocked) return;
     _startTimers();
   }
 
   // ==========================================================================
-  // 🔒 CERRAR SESIÓN POR INACTIVIDAD (VERSIÓN DEFINITIVA)
+  // 🔒 CERRAR SESIÓN POR INACTIVIDAD
   // ==========================================================================
   Future<void> _logoutDueToInactivity() async {
     if (!mounted) return;
 
-    // 1️⃣ Cancelar timers
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
 
-    // 2️⃣ ⚠️ CLAVE: Cerrar TODOS los diálogos abiertos usando el navigatorKey
+    // Cerrar todos los diálogos abiertos
     navigatorKey.currentState?.popUntil((route) => route.isFirst);
 
-    // 3️⃣ Resetear estado local
     if (mounted) {
       setState(() => _isLocked = false);
     }
 
-    // 4️⃣ Mostrar aviso
     if (mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -95,15 +117,12 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       );
     }
 
-    // 5️⃣ Pequeña pausa
     await Future.delayed(const Duration(milliseconds: 300));
-
-    // 6️⃣ Cerrar sesión
     await FirebaseAuth.instance.signOut();
   }
 
   // ==========================================================================
-  // 🔐 DIÁLOGO DE BLOQUEO
+  // 🔐 DIÁLOGO DE BLOQUEO CON CONTRASEÑA
   // ==========================================================================
   void _showPasswordLockDialog() {
     setState(() => _isLocked = true);
@@ -247,6 +266,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     );
   }
 
+  // ==========================================================================
+  // CONSULTAR ROL DEL USUARIO
+  // ==========================================================================
   Future<void> _fetchUserRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -272,12 +294,146 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     }
   }
 
+  // ==========================================================================
+  // 🌗 ALTERNAR TEMA
+  // ==========================================================================
   void _toggleTheme() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     widget.themeController
         .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
   }
 
+  // ==========================================================================
+  // 📄 DESCARGAR REPORTE PDF
+  // ==========================================================================
+  Future<void> _downloadPdf() async {
+    if (_isDownloading) return;
+
+    setState(() => _isDownloading = true);
+
+    try {
+      // SnackBar de "generando..."
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
+              SizedBox(width: 12),
+              Text('Generando PDF...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Generar PDF según el rol
+      final bytes = await PdfService.generateReport(
+        _userRole ?? 'Estudiante',
+      );
+
+      // Guardar en carpeta temporal
+      final dir = await getTemporaryDirectory();
+      final fileName = _userRole == 'Verificador'
+          ? 'reporte_verificador.pdf'
+          : 'reporte_estudiante.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes);
+
+      // Compartir
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/pdf')],
+        subject: 'Reporte TareaLog',
+        text: 'Reporte generado desde TareaLog',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al generar PDF: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
+  // ==========================================================================
+  // 📊 DESCARGAR REPORTE EXCEL
+  // ==========================================================================
+  Future<void> _downloadExcel() async {
+    if (_isDownloading) return;
+
+    setState(() => _isDownloading = true);
+
+    try {
+      // SnackBar de "generando..."
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
+              SizedBox(width: 12),
+              Text('Generando Excel...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Generar Excel según el rol
+      final file = await ExcelService.generateReport(
+        _userRole ?? 'Estudiante',
+      );
+
+      // Compartir
+      await Share.shareXFiles(
+        [
+          XFile(
+            file.path,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        subject: 'Reporte TareaLog',
+        text: 'Reporte generado desde TareaLog',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al generar Excel: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
+  // ==========================================================================
+  // BUILD
+  // ==========================================================================
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -288,11 +444,61 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
             ? 'TareaLog - Panel Verificador'
             : 'TareaLog - Estudiante'),
         actions: [
+          // ==============================================================
+          // 👇 MENÚ DE DESCARGAS
+          // ==============================================================
+          PopupMenuButton<String>(
+            icon: _isDownloading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.download),
+            tooltip: 'Descargar reporte',
+            enabled: !_isDownloading,
+            onSelected: (value) {
+              if (value == 'pdf') {
+                _downloadPdf();
+              } else if (value == 'excel') {
+                _downloadExcel();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'pdf',
+                child: Row(
+                  children: [
+                    Icon(Icons.picture_as_pdf, color: Colors.red),
+                    SizedBox(width: 12),
+                    Text('Descargar PDF'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'excel',
+                child: Row(
+                  children: [
+                    Icon(Icons.table_chart, color: Colors.green),
+                    SizedBox(width: 12),
+                    Text('Descargar Excel'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          // Botón de tema
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
             tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
             onPressed: _toggleTheme,
           ),
+
+          // Botón cerrar sesión
           IconButton(
             icon: const Icon(Icons.exit_to_app),
             tooltip: 'Cerrar sesión',
@@ -300,6 +506,10 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
           ),
         ],
       ),
+
+      // ======================================================================
+      // LISTENER para detectar actividad
+      // ======================================================================
       body: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerDown: (_) => _registerActivity(),
