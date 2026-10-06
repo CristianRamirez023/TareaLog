@@ -1,18 +1,7 @@
-// ============================================================================
-// PANTALLA PRINCIPAL (ROUTER POR ROL)
-// ----------------------------------------------------------------------------
-// - Detecta el rol del usuario (Estudiante / Verificador)
-// - Muestra el dashboard correspondiente
-// - Toggle de tema claro/oscuro
-// - Descarga de reportes PDF y Excel
-// - Auto-logout (5 min) y bloqueo con contraseña (2.5 min)
-// ============================================================================
-
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -20,24 +9,32 @@ import 'estudiante_screen.dart';
 import 'verificador_screen.dart';
 import '../services/pdf_service.dart';
 import '../services/excel_service.dart';
+import '../services/session_service.dart'; // 👈 NUEVO
 import '/controllers/theme_controller.dart';
-import '../main.dart'; // 👈 Para acceder a navigatorKey
+import '../main.dart';
 
 class PrincipalScreen extends StatefulWidget {
   final ThemeController themeController;
+  final String userRole;
 
-  const PrincipalScreen({super.key, required this.themeController});
+  const PrincipalScreen({
+    super.key,
+    required this.themeController,
+    required this.userRole,
+  });
 
   @override
   State<PrincipalScreen> createState() => _PrincipalScreenState();
 }
 
 class _PrincipalScreenState extends State<PrincipalScreen> {
-  String? _userRole;
-  bool _isLoadingRole = true;
+  // ==========================================================================
+  // CACHE DEL ROL
+  // ==========================================================================
+  late String _cachedRole;
 
   // ==========================================================================
-  // ⏱️ TIMERS DE SEGURIDAD
+  // TIMERS DE SEGURIDAD
   // ==========================================================================
   static const Duration _lockDuration = Duration(minutes: 2, seconds: 30);
   static const Duration _logoutDuration = Duration(minutes: 5);
@@ -48,50 +45,69 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   bool _isLocked = false;
   bool _isDownloading = false;
 
+  // ==========================================================================
+  // GETTER: Rol actual
+  // ==========================================================================
+  String get _userRole => _cachedRole;
+
+  // ==========================================================================
+  // INITSTATE
+  // ==========================================================================
   @override
   void initState() {
     super.initState();
-    _fetchUserRole();
+    _cachedRole = widget.userRole;
     _startTimers();
+
+    // 👇 NUEVO: Escuchar cambios de sesión (bloquea otros dispositivos)
+    SessionService.listenSessionChanges();
   }
 
+  // ==========================================================================
+  // DIDUPDATEWIDGET
+  // ==========================================================================
+  @override
+  void didUpdateWidget(PrincipalScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userRole != widget.userRole) {
+      _cachedRole = widget.userRole;
+    }
+  }
+
+  // ==========================================================================
+  // DISPOSE
+  // ==========================================================================
   @override
   void dispose() {
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
+    SessionService.dispose(); // 👈 NUEVO: cancelar suscripción
     super.dispose();
   }
 
   // ==========================================================================
-  // ⏱️ INICIAR / REINICIAR TIMERS
+  // TIMERS
   // ==========================================================================
   void _startTimers() {
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
 
     _lockTimer = Timer(_lockDuration, () {
-      if (mounted && !_isLocked) {
-        _showPasswordLockDialog();
-      }
+      if (mounted && !_isLocked) _showPasswordLockDialog();
     });
 
     _logoutTimer = Timer(_logoutDuration, () {
-      if (mounted) {
-        _logoutDueToInactivity();
-      }
+      if (mounted) _logoutDueToInactivity();
     });
   }
 
-  // ==========================================================================
-  // 👆 REGISTRA ACTIVIDAD
-  // ==========================================================================
   void _registerActivity() {
     if (_isLocked) return;
     _startTimers();
   }
 
   // ==========================================================================
-  // 🔒 CERRAR SESIÓN POR INACTIVIDAD
+  // CERRAR SESIÓN POR INACTIVIDAD
   // ==========================================================================
   Future<void> _logoutDueToInactivity() async {
     if (!mounted) return;
@@ -99,12 +115,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
 
-    // Cerrar todos los diálogos abiertos
     navigatorKey.currentState?.popUntil((route) => route.isFirst);
 
-    if (mounted) {
-      setState(() => _isLocked = false);
-    }
+    if (mounted) setState(() => _isLocked = false);
 
     if (mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
@@ -122,7 +135,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   }
 
   // ==========================================================================
-  // 🔐 DIÁLOGO DE BLOQUEO CON CONTRASEÑA
+  // DIÁLOGO DE BLOQUEO
   // ==========================================================================
   void _showPasswordLockDialog() {
     setState(() => _isLocked = true);
@@ -179,12 +192,10 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
               } on FirebaseAuthException catch (e) {
                 setDialogState(() {
                   isLoading = false;
-                  if (e.code == 'wrong-password' ||
-                      e.code == 'invalid-credential') {
-                    errorMessage = 'Contraseña incorrecta';
-                  } else {
-                    errorMessage = 'Error al verificar. Intenta de nuevo.';
-                  }
+                  errorMessage = (e.code == 'wrong-password' ||
+                          e.code == 'invalid-credential')
+                      ? 'Contraseña incorrecta'
+                      : 'Error al verificar. Intenta de nuevo.';
                 });
               } catch (e) {
                 setDialogState(() {
@@ -267,35 +278,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   }
 
   // ==========================================================================
-  // CONSULTAR ROL DEL USUARIO
-  // ==========================================================================
-  Future<void> _fetchUserRole() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-
-        if (mounted) {
-          setState(() {
-            _userRole = doc.exists
-                ? (doc.data()?['role'] ?? 'Estudiante')
-                : 'Estudiante';
-            _isLoadingRole = false;
-          });
-        }
-      } catch (e) {
-        if (mounted) setState(() => _isLoadingRole = false);
-      }
-    } else {
-      if (mounted) setState(() => _isLoadingRole = false);
-    }
-  }
-
-  // ==========================================================================
-  // 🌗 ALTERNAR TEMA
+  // ALTERNAR TEMA
   // ==========================================================================
   void _toggleTheme() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -304,15 +287,13 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   }
 
   // ==========================================================================
-  // 📄 DESCARGAR REPORTE PDF
+  // DESCARGAR PDF
   // ==========================================================================
   Future<void> _downloadPdf() async {
     if (_isDownloading) return;
-
     setState(() => _isDownloading = true);
 
     try {
-      // SnackBar de "generando..."
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Row(
@@ -333,12 +314,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
         ),
       );
 
-      // Generar PDF según el rol
-      final bytes = await PdfService.generateReport(
-        _userRole ?? 'Estudiante',
-      );
-
-      // Guardar en carpeta temporal
+      final bytes = await PdfService.generateReport(_userRole);
       final dir = await getTemporaryDirectory();
       final fileName = _userRole == 'Verificador'
           ? 'reporte_verificador.pdf'
@@ -346,7 +322,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes);
 
-      // Compartir
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/pdf')],
         subject: 'Reporte TareaLog',
@@ -362,22 +337,18 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isDownloading = false);
-      }
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
   // ==========================================================================
-  // 📊 DESCARGAR REPORTE EXCEL
+  // DESCARGAR EXCEL
   // ==========================================================================
   Future<void> _downloadExcel() async {
     if (_isDownloading) return;
-
     setState(() => _isDownloading = true);
 
     try {
-      // SnackBar de "generando..."
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Row(
@@ -398,12 +369,8 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
         ),
       );
 
-      // Generar Excel según el rol
-      final file = await ExcelService.generateReport(
-        _userRole ?? 'Estudiante',
-      );
+      final file = await ExcelService.generateReport(_userRole);
 
-      // Compartir
       await Share.shareXFiles(
         [
           XFile(
@@ -425,9 +392,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isDownloading = false);
-      }
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
@@ -437,24 +402,42 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final appBarForegroundColor =
+        Theme.of(context).appBarTheme.foregroundColor ?? Colors.white;
+
+    final role = _cachedRole;
+    final bool isVerifier = role == 'Verificador';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_userRole == 'Verificador'
-            ? 'TareaLog - Panel Verificador'
-            : 'TareaLog - Estudiante'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'TareaLog',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              isVerifier ? Icons.verified_user : Icons.school,
+              color: appBarForegroundColor,
+              size: 22,
+            ),
+          ],
+        ),
         actions: [
-          // ==============================================================
-          // 👇 MENÚ DE DESCARGAS
-          // ==============================================================
           PopupMenuButton<String>(
             icon: _isDownloading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: appBarForegroundColor,
                     ),
                   )
                 : const Icon(Icons.download),
@@ -490,15 +473,11 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
               ),
             ],
           ),
-
-          // Botón de tema
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
             tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
             onPressed: _toggleTheme,
           ),
-
-          // Botón cerrar sesión
           IconButton(
             icon: const Icon(Icons.exit_to_app),
             tooltip: 'Cerrar sesión',
@@ -506,21 +485,15 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
           ),
         ],
       ),
-
-      // ======================================================================
-      // LISTENER para detectar actividad
-      // ======================================================================
       body: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerDown: (_) => _registerActivity(),
         onPointerMove: (_) => _registerActivity(),
         onPointerUp: (_) => _registerActivity(),
         onPointerSignal: (_) => _registerActivity(),
-        child: _isLoadingRole
-            ? const Center(child: CircularProgressIndicator())
-            : _userRole == 'Verificador'
-                ? const VerificadorScreen()
-                : const EstudianteScreen(),
+        child: isVerifier
+            ? const VerificadorScreen()
+            : const EstudianteScreen(),
       ),
     );
   }

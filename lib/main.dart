@@ -1,56 +1,31 @@
 // lib/main.dart
-// ============================================================================
-// ARCHIVO PRINCIPAL DE LA APP
-// Inicializa Firebase, App Check y configura el tema claro/oscuro global.
-// ============================================================================
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // 👈 Importante
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'screens/auth_screen.dart';
 import 'screens/principal_screen.dart';
 import 'controllers/theme_controller.dart';
 
-// ============================================================================
-// 👈 CLAVE GLOBAL DEL NAVIGATOR
-// Permite cerrar diálogos desde cualquier parte de la app
-// ============================================================================
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-// ============================================================================
-// PUNTO DE ENTRADA DE LA APP
-// ============================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1️⃣ Inicializar Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // ==========================================================================
-  // 2️⃣ ACTIVAR FIREBASE APP CHECK
-  // --------------------------------------------------------------------------
-  // Verifica que cada petición a Firebase venga de la app legítima.
-  //
-  // ⚠️ MODO DEBUG: Usar mientras desarrollas en el celular.
-  //    Recuerda registrar el Debug Token en Firebase Console.
-  //
-  // 🚀 MODO PRODUCCIÓN: Cambiar a playIntegrity cuando hagas el build final.
-  // ==========================================================================
   await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug, // ✅ MODO DEBUG
+    androidProvider: AndroidProvider.debug,
     appleProvider: AppleProvider.debug,
   );
 
   runApp(const MyApp());
 }
 
-// ============================================================================
-// WIDGET RAÍZ DE LA APP
-// ============================================================================
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
@@ -59,12 +34,8 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  // Controlador del tema (ChangeNotifier)
   final ThemeController _themeController = ThemeController();
 
-  // ==========================================================================
-  // PALETA DE COLORES DE LA MARCA TAREALOG
-  // ==========================================================================
   static const Color _azulOscuro = Color(0xFF0D47A1);
   static const Color _azulClaro = Color(0xFF64B5F6);
   static const Color _azulMedio = Color(0xFF1565C0);
@@ -78,11 +49,9 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'TareaLog',
-          navigatorKey: navigatorKey, // 👈 Clave global
+          navigatorKey: navigatorKey,
 
-          // ==================================================================
           // ☀️ TEMA CLARO
-          // ==================================================================
           theme: ThemeData(
             useMaterial3: true,
             brightness: Brightness.light,
@@ -100,9 +69,7 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
 
-          // ==================================================================
           // 🌙 TEMA OSCURO
-          // ==================================================================
           darkTheme: ThemeData(
             useMaterial3: true,
             brightness: Brightness.dark,
@@ -124,10 +91,7 @@ class _MyAppState extends State<MyApp> {
 
           themeMode: _themeController.themeMode,
 
-          // ==================================================================
           // 🚦 GUARDIÁN DE RUTAS
-          // Escucha el estado de autenticación y decide qué pantalla mostrar.
-          // ==================================================================
           home: StreamBuilder<User?>(
             stream: FirebaseAuth.instance.authStateChanges(),
             builder: (context, snapshot) {
@@ -138,9 +102,31 @@ class _MyAppState extends State<MyApp> {
                 );
               }
 
-              // Si hay usuario → PrincipalScreen
+              // Si hay usuario → cargar su rol y mostrar PrincipalScreen
               if (snapshot.hasData) {
-                return PrincipalScreen(themeController: _themeController);
+                return FutureBuilder<DocumentSnapshot>(
+                  future: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(snapshot.data!.uid)
+                      .get(),
+                  builder: (context, roleSnapshot) {
+                    if (!roleSnapshot.hasData) {
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    final data = roleSnapshot.data!.data();
+                    final role = (data is Map && data['role'] != null)
+                        ? data['role'] as String
+                        : 'Estudiante';
+
+                    return PrincipalScreen(
+                      themeController: _themeController,
+                      userRole: role, // 👈 Pasar el rol
+                    );
+                  },
+                );
               }
 
               // Si NO hay usuario → AuthScreen

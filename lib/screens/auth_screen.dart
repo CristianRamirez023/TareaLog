@@ -6,6 +6,7 @@
 // - Aceptación de Política de Datos (solo registro)
 // - Toggle de tema claro/oscuro
 // - Mostrar/ocultar contraseña con ojito
+// - Registro de sesión única (evita múltiples dispositivos)
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '/controllers/theme_controller.dart';
 import '../widgets/recaptcha_dialog.dart';
+import '../services/session_service.dart'; // 👈 NUEVO
 import 'politica_datos_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -39,7 +41,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool isLoading = false;
   bool _acceptedPolicy = false;
-  bool _obscurePassword = true; // 👈 Controla el ojito de la contraseña
+  bool _obscurePassword = true; // Controla el ojito de la contraseña
 
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
@@ -86,17 +88,27 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (isLogin) {
+        // ==================================================================
+        // 🔐 LOGIN
+        // ==================================================================
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
+
+        // 👇 Registrar la sesión activa (bloquea otros dispositivos)
+        await SessionService.registerSession();
       } else {
+        // ==================================================================
+        // 📝 REGISTRO
+        // ==================================================================
         UserCredential userCredential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(
           email: email,
           password: password,
         );
 
+        // Guardar datos del usuario en Firestore
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -110,6 +122,9 @@ class _AuthScreenState extends State<AuthScreen> {
           'acceptedPolicyAt': Timestamp.now(),
           'createdAt': Timestamp.now(),
         });
+
+        // 👇 Registrar la sesión activa
+        await SessionService.registerSession();
       }
     } on FirebaseAuthException catch (e) {
       String mensajeError = 'Ocurrió un error en la autenticación.';
@@ -305,7 +320,7 @@ class _AuthScreenState extends State<AuthScreen> {
               // ==============================================================
               TextField(
                 controller: _passwordController,
-                obscureText: _obscurePassword, // 👈 Dinámico
+                obscureText: _obscurePassword,
                 decoration: InputDecoration(
                   labelText: 'Contraseña',
                   border: const OutlineInputBorder(),
@@ -469,7 +484,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   setState(() {
                     isLogin = !isLogin;
                     if (isLogin) _acceptedPolicy = false;
-                    _obscurePassword = true; // 👈 Resetear el ojito
+                    _obscurePassword = true; // Resetear el ojito
                   });
                 },
                 child: Text(
