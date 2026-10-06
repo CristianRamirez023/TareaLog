@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart'; // 👈 NUEVO
 
 import 'estudiante_screen.dart';
 import 'verificador_screen.dart';
 import '../services/pdf_service.dart';
 import '../services/excel_service.dart';
-import '../services/session_service.dart'; // 👈 NUEVO
+import '../services/session_service.dart';
+import '../services/backup_service.dart'; // 👈 NUEVO
 import '/controllers/theme_controller.dart';
 import '../main.dart';
 
@@ -58,8 +60,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     super.initState();
     _cachedRole = widget.userRole;
     _startTimers();
-
-    // 👇 NUEVO: Escuchar cambios de sesión (bloquea otros dispositivos)
     SessionService.listenSessionChanges();
   }
 
@@ -81,7 +81,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   void dispose() {
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
-    SessionService.dispose(); // 👈 NUEVO: cancelar suscripción
+    SessionService.dispose();
     super.dispose();
   }
 
@@ -397,6 +397,174 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   }
 
   // ==========================================================================
+  // 💾 CREAR BACKUP
+  // ==========================================================================
+  Future<void> _createBackup() async {
+    if (_isDownloading) return;
+    setState(() => _isDownloading = true);
+
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
+              SizedBox(width: 12),
+              Text('Creando backup...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      final file = await BackupService.createBackup();
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/json')],
+        subject: 'Backup TareaLog',
+        text: 'Backup completo generado desde TareaLog',
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Backup generado correctamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al crear backup: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  // ==========================================================================
+  // 🔄 RESTAURAR BACKUP
+  // ==========================================================================
+  Future<void> _restoreBackup() async {
+    if (_isDownloading) return;
+
+    try {
+      // 1. El usuario elige el archivo JSON
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        dialogTitle: 'Selecciona el archivo de backup',
+      );
+
+      if (result == null || result.files.single.path == null) {
+        return; // Usuario canceló
+      }
+
+      final file = File(result.files.single.path!);
+
+      // 2. Confirmar con el usuario antes de restaurar
+      if (!mounted) return;
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Restaurar Backup'),
+            ],
+          ),
+          content: const Text(
+            '⚠️ Se sobrescribirán los datos actuales con los del backup.\n\n'
+            '¿Deseas continuar?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'Restaurar',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) return;
+
+      // 3. Mostrar loading y restaurar
+      setState(() => _isDownloading = true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Text('Restaurando backup...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+      final resumen = await BackupService.restoreBackup(file);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ Backup restaurado:\n'
+              '${resumen['tasksRestored']} tareas recuperadas',
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al restaurar: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  // ==========================================================================
   // BUILD
   // ==========================================================================
   @override
@@ -430,6 +598,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
           ],
         ),
         actions: [
+          // ==============================================================
+          // MENÚ DE OPCIONES (PDF / Excel / Backup / Restaurar)
+          // ==============================================================
           PopupMenuButton<String>(
             icon: _isDownloading
                 ? SizedBox(
@@ -440,17 +611,22 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                       color: appBarForegroundColor,
                     ),
                   )
-                : const Icon(Icons.download),
-            tooltip: 'Descargar reporte',
+                : const Icon(Icons.more_vert),
+            tooltip: 'Opciones',
             enabled: !_isDownloading,
             onSelected: (value) {
               if (value == 'pdf') {
                 _downloadPdf();
               } else if (value == 'excel') {
                 _downloadExcel();
+              } else if (value == 'backup') {
+                _createBackup();
+              } else if (value == 'restore') {
+                _restoreBackup();
               }
             },
             itemBuilder: (context) => [
+              // --- Reportes ---
               const PopupMenuItem(
                 value: 'pdf',
                 child: Row(
@@ -471,13 +647,42 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                   ],
                 ),
               ),
+
+              // --- Separador ---
+              const PopupMenuDivider(),
+
+              // --- Backup ---
+              const PopupMenuItem(
+                value: 'backup',
+                child: Row(
+                  children: [
+                    Icon(Icons.backup, color: Colors.blue),
+                    SizedBox(width: 12),
+                    Text('Hacer Backup'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'restore',
+                child: Row(
+                  children: [
+                    Icon(Icons.restore, color: Colors.orange),
+                    SizedBox(width: 12),
+                    Text('Restaurar Backup'),
+                  ],
+                ),
+              ),
             ],
           ),
+
+          // Botón de tema
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
             tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
             onPressed: _toggleTheme,
           ),
+
+          // Botón de cerrar sesión
           IconButton(
             icon: const Icon(Icons.exit_to_app),
             tooltip: 'Cerrar sesión',
