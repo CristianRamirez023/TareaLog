@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../l10n/app_localizations.dart'; // 👈 NUEVO
+import '../services/log_service.dart';
 
 class VerificadorScreen extends StatefulWidget {
   const VerificadorScreen({super.key});
@@ -15,17 +17,18 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
 
   bool _isLinking = false;
 
-  // =========================================================================
-  // VINCULACIÓN
-  // =========================================================================
+  // ==========================================================================
+  // VINCULACIÓN DE ESTUDIANTE
+  // ==========================================================================
   Future<void> _linkStudentByCode() async {
     if (_isLinking) return;
 
+    final t = AppLocalizations.of(context)!;
     final code = _codeInputController.text.trim().toUpperCase();
     final verifier = FirebaseAuth.instance.currentUser;
 
     if (code.isEmpty) {
-      _showSnackBar('Ingresa un código válido', isError: true);
+      _showSnackBar(t.enterCode, isError: true);
       return;
     }
 
@@ -42,10 +45,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
 
       if (query.docs.isEmpty) {
         if (mounted) {
-          _showSnackBar(
-            'Código no válido o ya fue usado. Pídele al estudiante que genere uno nuevo.',
-            isError: true,
-          );
+          _showSnackBar(t.invalidCode, isError: true);
         }
         return;
       }
@@ -57,17 +57,11 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
       if (currentVerifierId != null) {
         if (currentVerifierId == verifier.uid) {
           if (mounted) {
-            _showSnackBar(
-              'Este estudiante ya está vinculado a tu cuenta',
-              isError: true,
-            );
+            _showSnackBar(t.studentAlreadyLinked, isError: true);
           }
         } else {
           if (mounted) {
-            _showSnackBar(
-              'Este estudiante ya está vinculado a otro verificador',
-              isError: true,
-            );
+            _showSnackBar(t.studentLinkedToOther, isError: true);
           }
         }
         return;
@@ -90,16 +84,18 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
         await task.reference.update({'verificadorId': verifier.uid});
       }
 
+      final studentName = studentData['name'] ?? 'Estudiante';
+      await LogService.logStudentLink(studentName);
+
       _codeInputController.clear();
       if (mounted) Navigator.of(context).pop();
 
       if (mounted) {
-        final studentName = studentData['name'] ?? 'Estudiante';
-        _showSnackBar('$studentName vinculado con éxito', isError: false);
+        _showSnackBar(t.studentLinked(studentName), isError: false);
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Error al vincular estudiante: $e', isError: true);
+        _showSnackBar(t.errorLinking(e.toString()), isError: true);
       }
     } finally {
       if (mounted) {
@@ -108,10 +104,15 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
     }
   }
 
-  // =========================================================================
+  // ==========================================================================
   // EVALUAR TAREA
-  // =========================================================================
-  Future<void> _evaluateTask(String taskId, String newStatus) async {
+  // ==========================================================================
+  Future<void> _evaluateTask(
+    String taskId,
+    String taskTitle,
+    String newStatus,
+  ) async {
+    final t = AppLocalizations.of(context)!;
     final verifier = FirebaseAuth.instance.currentUser;
     if (verifier == null) return;
 
@@ -132,49 +133,54 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
           .doc(taskId)
           .update(updateData);
 
+      await LogService.logTaskVerify(taskTitle, newStatus);
+
       _feedbackController.clear();
       if (mounted) Navigator.of(context).pop();
 
       if (mounted) {
-        _showSnackBar('Tarea marcada como: $newStatus', isError: false);
+        final translatedStatus =
+            newStatus == 'Aprobado' ? t.approved : t.rejected;
+        _showSnackBar(t.taskMarked(translatedStatus), isError: false);
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Error al actualizar estado', isError: true);
+        _showSnackBar(t.errorUpdatingStatus, isError: true);
       }
     }
   }
 
-  // =========================================================================
-  // DIÁLOGOS
-  // =========================================================================
+  // ==========================================================================
+  // DIÁLOGO DE VINCULACIÓN
+  // ==========================================================================
   void _showLinkDialog() {
     _codeInputController.clear();
 
     showDialog(
       context: context,
       builder: (ctx) {
+        final t = AppLocalizations.of(ctx)!;
         final colorScheme = Theme.of(ctx).colorScheme;
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Vincular Estudiante'),
+              title: Text(t.linkStudentTitle),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'Pídele al estudiante su código de vinculación (formato TRG-XXXXXX).',
-                    style: TextStyle(fontSize: 12),
+                  Text(
+                    t.linkStudentMessage,
+                    style: const TextStyle(fontSize: 12),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _codeInputController,
                     textCapitalization: TextCapitalization.characters,
                     enabled: !_isLinking,
-                    decoration: const InputDecoration(
-                      labelText: 'Código (ej. TRG-8A92)',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.qr_code),
+                    decoration: InputDecoration(
+                      labelText: t.codeLabel,
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.qr_code),
                     ),
                   ),
                 ],
@@ -183,7 +189,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                 TextButton(
                   onPressed:
                       _isLinking ? null : () => Navigator.of(ctx).pop(),
-                  child: const Text('Cancelar'),
+                  child: Text(t.cancel),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -200,7 +206,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Vincular'),
+                      : Text(t.link),
                 ),
               ],
             );
@@ -210,6 +216,9 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
     );
   }
 
+  // ==========================================================================
+  // DIÁLOGO DE REVISIÓN (APROBAR/RECHAZAR)
+  // ==========================================================================
   void _showReviewDialog(
     String taskId,
     String taskTitle,
@@ -219,92 +228,55 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Revisar: $taskTitle'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _feedbackController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Observaciones / Retroalimentación',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style:
-                ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => _evaluateTask(taskId, 'Rechazado'),
-            child: const Text(
-              'Desestimar',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () => _evaluateTask(taskId, 'Aprobado'),
-            child: const Text(
-              'Aprobar',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showStudentTasksDialog(
-    String studentName,
-    List<QueryDocumentSnapshot> studentTasks,
-  ) {
-    showDialog(
-      context: context,
       builder: (ctx) {
-        final colorScheme = Theme.of(ctx).colorScheme;
+        final t = AppLocalizations.of(ctx)!;
         return AlertDialog(
-          title: Text('Tareas de $studentName'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: studentTasks.isEmpty
-                ? const Text('Este estudiante no tiene tareas aún.')
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: studentTasks.length,
-                    itemBuilder: (context, index) {
-                      final taskData = studentTasks[index].data()
-                          as Map<String, dynamic>;
-                      final status = taskData['status'] ?? 'Pendiente';
-
-                      Color statusColor = Colors.orange;
-                      if (status == 'Aprobado') statusColor = Colors.green;
-                      if (status == 'Rechazado') statusColor = Colors.red;
-
-                      return ListTile(
-                        title: Text(taskData['title'] ?? ''),
-                        subtitle: Text(
-                          status,
-                          style: TextStyle(
-                            color: statusColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+          title: Text('${t.review}: $taskTitle'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _feedbackController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: t.observations,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cerrar'),
+              child: Text(t.cancel),
+            ),
+            ElevatedButton(
+              style:
+                  ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () {
+                if (_feedbackController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(t.observationRequired),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                _evaluateTask(taskId, taskTitle, 'Rechazado');
+              },
+              child: Text(
+                t.reject,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              onPressed: () => _evaluateTask(taskId, taskTitle, 'Aprobado'),
+              child: Text(
+                t.approve,
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
@@ -312,9 +284,9 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
     );
   }
 
-  // =========================================================================
-  // HELPER: SnackBar
-  // =========================================================================
+  // ==========================================================================
+  // HELPER: SNACKBAR
+  // ==========================================================================
   void _showSnackBar(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -325,11 +297,12 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
     );
   }
 
-  // =========================================================================
+  // ==========================================================================
   // BUILD
-  // =========================================================================
+  // ==========================================================================
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
     final verifier = FirebaseAuth.instance.currentUser;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -360,9 +333,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                         foregroundColor: colorScheme.onPrimary,
                         child: Text(
                           name.isNotEmpty ? name[0].toUpperCase() : '?',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -370,9 +341,9 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Bienvenido de vuelta,',
-                              style: TextStyle(fontSize: 12),
+                            Text(
+                              t.welcomeUser,
+                              style: const TextStyle(fontSize: 12),
                             ),
                             Text(
                               name,
@@ -391,11 +362,10 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
             ),
 
             // =========================================================
-            // ESTADÍSTICAS + LISTA AGRUPADA POR ESTUDIANTE
+            // ESTADÍSTICAS + LISTA
             // =========================================================
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
-                // Traemos TODAS las tareas del verificador
                 stream: FirebaseFirestore.instance
                     .collection('tasks')
                     .where('verificadorId', isEqualTo: verifier?.uid)
@@ -408,7 +378,6 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
 
                   final tasks = tasksSnapshot.data?.docs ?? [];
 
-                  // Estadísticas generales
                   int total = tasks.length;
                   int aprobadas = 0;
                   int rechazadas = 0;
@@ -428,34 +397,33 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
 
                   return Column(
                     children: [
-                      // Estadísticas
                       Padding(
                         padding: const EdgeInsets.all(12),
                         child: Row(
                           children: [
                             _buildStatCard(
-                              'Total',
+                              t.total,
                               total,
                               colorScheme.primary,
                               Icons.assignment,
                             ),
                             const SizedBox(width: 8),
                             _buildStatCard(
-                              'Pendientes',
+                              t.pending,
                               pendientes,
                               Colors.orange,
                               Icons.pending_actions,
                             ),
                             const SizedBox(width: 8),
                             _buildStatCard(
-                              'Aprobadas',
+                              t.approved,
                               aprobadas,
                               Colors.green,
                               Icons.check_circle,
                             ),
                             const SizedBox(width: 8),
                             _buildStatCard(
-                              'Rechazadas',
+                              t.rejected,
                               rechazadas,
                               Colors.red,
                               Icons.cancel,
@@ -464,10 +432,8 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                         ),
                       ),
 
-                      // Lista agrupada por estudiante
                       Expanded(
                         child: StreamBuilder<QuerySnapshot>(
-                          // Traemos la lista de estudiantes vinculados
                           stream: FirebaseFirestore.instance
                               .collection('users')
                               .where('verificadorId',
@@ -485,13 +451,13 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                 studentsSnapshot.data?.docs ?? [];
 
                             if (students.isEmpty) {
-                              return const Center(
+                              return Center(
                                 child: Padding(
-                                  padding: EdgeInsets.all(24),
+                                  padding: const EdgeInsets.all(24),
                                   child: Text(
-                                    'No tienes estudiantes vinculados.\nUsa el botón "Vincular" para agregar uno.',
+                                    t.noLinkedStudents,
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 16,
                                       color: Colors.grey,
                                     ),
@@ -500,7 +466,6 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                               );
                             }
 
-                            // Agrupar tareas por estudiante
                             Map<String, List<QueryDocumentSnapshot>>
                                 tasksByStudent = {};
                             for (var task in tasks) {
@@ -530,12 +495,11 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                 final studentTasks =
                                     tasksByStudent[student.id] ?? [];
 
-                                // Contadores por estudiante
                                 int sPending = 0;
                                 int sApproved = 0;
                                 int sRejected = 0;
-                                for (var t in studentTasks) {
-                                  final d = t.data()
+                                for (var task in studentTasks) {
+                                  final d = task.data()
                                       as Map<String, dynamic>;
                                   final s = d['status'] ?? 'Pendiente';
                                   if (s == 'Aprobado') {
@@ -584,7 +548,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${studentTasks.length} tareas · $sPending pend. · $sApproved aprob. · $sRejected rech.',
+                                          '${studentTasks.length} ${t.tasks} · $sPending ${t.pending} · $sApproved ${t.approved} · $sRejected ${t.rejected}',
                                           style: const TextStyle(
                                             fontSize: 11,
                                           ),
@@ -593,11 +557,12 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                     ),
                                     children: studentTasks.isEmpty
                                         ? [
-                                            const Padding(
-                                              padding: EdgeInsets.all(16),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.all(16),
                                               child: Text(
-                                                'Este estudiante no tiene tareas aún.',
-                                                style: TextStyle(
+                                                t.studentHasNoTasks,
+                                                style: const TextStyle(
                                                   color: Colors.grey,
                                                   fontStyle:
                                                       FontStyle.italic,
@@ -617,6 +582,18 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                                 taskData['isCompleted'] ??
                                                     false;
 
+                                            // Traducir el estado
+                                            String translatedStatus;
+                                            if (status == 'Aprobado') {
+                                              translatedStatus = t.approved;
+                                            } else if (status ==
+                                                'Rechazado') {
+                                              translatedStatus = t.rejected;
+                                            } else {
+                                              translatedStatus = t.pending;
+                                            }
+
+                                            // Color según estado
                                             Color statusColor =
                                                 Colors.orange;
                                             if (status == 'Aprobado') {
@@ -661,7 +638,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                                     ),
                                                   const SizedBox(height: 2),
                                                   Text(
-                                                    'Estado alumno: ${isCompleted ? "✅ Completada" : "⏳ En progreso"}',
+                                                    '${t.status}: ${isCompleted ? t.taskCompletedStatus : t.taskInProgress}',
                                                     style:
                                                         const TextStyle(
                                                       fontSize: 11,
@@ -671,7 +648,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                                   if (feedback
                                                       .isNotEmpty)
                                                     Text(
-                                                      'Feedback: $feedback',
+                                                      '${t.observations}: $feedback',
                                                       style: TextStyle(
                                                         fontSize: 11,
                                                         fontStyle:
@@ -705,7 +682,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
                                                   feedback,
                                                 ),
                                                 child: Text(
-                                                  status,
+                                                  translatedStatus,
                                                   style: const TextStyle(
                                                     fontSize: 12,
                                                   ),
@@ -728,7 +705,7 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
           ],
         ),
 
-        // Botón flotante para vincular estudiante
+        // Botón flotante
         Positioned(
           bottom: 16,
           right: 16,
@@ -737,13 +714,16 @@ class _VerificadorScreenState extends State<VerificadorScreen> {
             foregroundColor: colorScheme.onPrimary,
             onPressed: _showLinkDialog,
             icon: const Icon(Icons.person_add),
-            label: const Text('Vincular'),
+            label: Text(t.link),
           ),
         ),
       ],
     );
   }
 
+  // ==========================================================================
+  // CARD DE ESTADÍSTICA
+  // ==========================================================================
   Widget _buildStatCard(
       String label, int count, Color color, IconData icon) {
     return Expanded(

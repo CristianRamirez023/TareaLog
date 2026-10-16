@@ -7,20 +7,30 @@
 // - Toggle de tema claro/oscuro
 // - Mostrar/ocultar contraseña con ojito
 // - Registro de sesión única (evita múltiples dispositivos)
+// - Registro de logs de auditoría
+// - Cambio de idioma (Español / Inglés)
 // ============================================================================
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '/controllers/theme_controller.dart';
+import '/controllers/locale_controller.dart';
+import '../l10n/app_localizations.dart'; // 👈 NUEVO
 import '../widgets/recaptcha_dialog.dart';
-import '../services/session_service.dart'; // 👈 NUEVO
+import '../services/session_service.dart';
+import '../services/log_service.dart';
 import 'politica_datos_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   final ThemeController themeController;
+  final LocaleController localeController;
 
-  const AuthScreen({super.key, required this.themeController});
+  const AuthScreen({
+    super.key,
+    required this.themeController,
+    required this.localeController,
+  });
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -41,15 +51,16 @@ class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool isLoading = false;
   bool _acceptedPolicy = false;
-  bool _obscurePassword = true; // Controla el ojito de la contraseña
+  bool _obscurePassword = true;
 
   final List<String> _roles = ['Estudiante', 'Verificador'];
   String _selectedRole = 'Estudiante';
 
   // ==========================================================================
-  // ENVÍO DEL FORMULARIO (LOGIN O REGISTRO)
+  // ENVÍO DEL FORMULARIO
   // ==========================================================================
   Future<void> _submitAuthForm() async {
+    final t = AppLocalizations.of(context)!;
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
@@ -67,15 +78,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
     if (!isLogin && !_acceptedPolicy) {
       _showSnackBar(
-        'Debes aceptar la Política de Tratamiento de Datos',
+        'Debes aceptar la ${t.privacyPolicy}',
         isError: true,
       );
       return;
     }
 
-    // ==========================================================================
-    // 👇 CAPTCHA VISUAL
-    // ==========================================================================
+    // CAPTCHA
     final captchaPassed = await RecaptchaDialog.show(context);
 
     if (!captchaPassed) {
@@ -83,32 +92,24 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    // ---------- LOGIN / REGISTRO ----------
     setState(() => isLoading = true);
 
     try {
       if (isLogin) {
-        // ==================================================================
-        // 🔐 LOGIN
-        // ==================================================================
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
 
-        // 👇 Registrar la sesión activa (bloquea otros dispositivos)
         await SessionService.registerSession();
+        await LogService.logLogin();
       } else {
-        // ==================================================================
-        // 📝 REGISTRO
-        // ==================================================================
         UserCredential userCredential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(
           email: email,
           password: password,
         );
 
-        // Guardar datos del usuario en Firestore
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -123,8 +124,8 @@ class _AuthScreenState extends State<AuthScreen> {
           'createdAt': Timestamp.now(),
         });
 
-        // 👇 Registrar la sesión activa
         await SessionService.registerSession();
+        await LogService.logLogin();
       }
     } on FirebaseAuthException catch (e) {
       String mensajeError = 'Ocurrió un error en la autenticación.';
@@ -142,6 +143,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       _showSnackBar(mensajeError, isError: true);
+      await LogService.logError('Error de autenticación: ${e.code}');
     } catch (e) {
       _showSnackBar('Error al procesar la solicitud', isError: true);
     } finally {
@@ -183,27 +185,27 @@ class _AuthScreenState extends State<AuthScreen> {
   // DIÁLOGO DE RESTABLECER CONTRASEÑA
   // ==========================================================================
   void _showResetPasswordDialog() {
+    final t = AppLocalizations.of(context)!;
     _resetEmailController.text = _emailController.text;
 
     showDialog(
       context: context,
       builder: (ctx) {
+        final tCtx = AppLocalizations.of(ctx)!;
         final colorScheme = Theme.of(ctx).colorScheme;
         return AlertDialog(
-          title: const Text('Restablecer contraseña'),
+          title: Text(tCtx.resetPassword),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Ingresa tu correo para recibir un enlace de recuperación.',
-              ),
+              Text(tCtx.resetPasswordMessage),
               const SizedBox(height: 12),
               TextField(
                 controller: _resetEmailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Correo Electrónico',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: tCtx.email,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
@@ -212,7 +214,7 @@ class _AuthScreenState extends State<AuthScreen> {
             TextButton(
               style: TextButton.styleFrom(foregroundColor: colorScheme.primary),
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancelar'),
+              child: Text(tCtx.cancel),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -220,7 +222,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 foregroundColor: colorScheme.onPrimary,
               ),
               onPressed: _resetPassword,
-              child: const Text('Enviar'),
+              child: Text(tCtx.send),
             ),
           ],
         );
@@ -250,20 +252,64 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   // ==========================================================================
+  // 🌐 CAMBIAR IDIOMA
+  // ==========================================================================
+  void _showLanguageSelector() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
+              title: const Text('Español'),
+              trailing: widget.localeController.locale.languageCode == 'es'
+                  ? const Icon(Icons.check, color: Colors.green)
+                  : null,
+              onTap: () {
+                widget.localeController.setLocale(const Locale('es'));
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: const Text('🇺🇸', style: TextStyle(fontSize: 24)),
+              title: const Text('English'),
+              trailing: widget.localeController.locale.languageCode == 'en'
+                  ? const Icon(Icons.check, color: Colors.green)
+                  : null,
+              onTap: () {
+                widget.localeController.setLocale(const Locale('en'));
+                Navigator.pop(ctx);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================================================
   // BUILD
   // ==========================================================================
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!; // 👈 Traducciones
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'),
+        title: Text(isLogin ? t.login : t.register),
         actions: [
           IconButton(
+            icon: const Icon(Icons.language),
+            tooltip: t.changeLanguage,
+            onPressed: _showLanguageSelector,
+          ),
+          IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-            tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
+            tooltip: isDark ? t.lightMode : t.darkMode,
             onPressed: _toggleTheme,
           ),
         ],
@@ -277,11 +323,9 @@ class _AuthScreenState extends State<AuthScreen> {
             children: [
               const SizedBox(height: 20),
 
-              // ==============================================================
               // LOGO Y SUBTÍTULO
-              // ==============================================================
               Text(
-                'TareaLog',
+                t.appTitle,
                 style: TextStyle(
                   fontSize: 42,
                   fontWeight: FontWeight.bold,
@@ -291,7 +335,7 @@ class _AuthScreenState extends State<AuthScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Organiza tus tareas',
+                t.appSubtitle,
                 style: TextStyle(
                   fontSize: 14,
                   color: isDark
@@ -301,28 +345,24 @@ class _AuthScreenState extends State<AuthScreen> {
               ),
               const SizedBox(height: 40),
 
-              // ==============================================================
               // CAMPO: CORREO
-              // ==============================================================
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Correo Electrónico',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
+                decoration: InputDecoration(
+                  labelText: t.email,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.email),
                 ),
               ),
               const SizedBox(height: 12),
 
-              // ==============================================================
-              // CAMPO: CONTRASEÑA CON OJITO 👁️
-              // ==============================================================
+              // CAMPO: CONTRASEÑA CON OJITO
               TextField(
                 controller: _passwordController,
                 obscureText: _obscurePassword,
                 decoration: InputDecoration(
-                  labelText: 'Contraseña',
+                  labelText: t.password,
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.lock),
                   suffixIcon: IconButton(
@@ -331,9 +371,6 @@ class _AuthScreenState extends State<AuthScreen> {
                           ? Icons.visibility_off
                           : Icons.visibility,
                     ),
-                    tooltip: _obscurePassword
-                        ? 'Mostrar contraseña'
-                        : 'Ocultar contraseña',
                     onPressed: () {
                       setState(() {
                         _obscurePassword = !_obscurePassword;
@@ -344,32 +381,34 @@ class _AuthScreenState extends State<AuthScreen> {
               ),
               const SizedBox(height: 12),
 
-              // ==============================================================
               // CAMPOS EXCLUSIVOS DEL REGISTRO
-              // ==============================================================
               if (!isLogin) ...[
                 TextField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre completo',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person),
+                  decoration: InputDecoration(
+                    labelText: t.fullName,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.person),
                   ),
                 ),
                 const SizedBox(height: 12),
 
                 DropdownButtonFormField<String>(
                   value: _selectedRole,
-                  decoration: const InputDecoration(
-                    labelText: 'Selecciona tu Rol',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.badge),
+                  decoration: InputDecoration(
+                    labelText: t.selectRole,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.badge),
                   ),
                   items: _roles.map((String role) {
+                    // Traducir el rol
+                    final roleLabel = role == 'Estudiante'
+                        ? t.student
+                        : t.verifier;
                     return DropdownMenuItem<String>(
                       value: role,
-                      child: Text(role),
+                      child: Text(roleLabel),
                     );
                   }).toList(),
                   onChanged: (String? newValue) {
@@ -380,7 +419,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // ----- Checkbox de política de datos -----
+                // Checkbox de política
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -407,9 +446,9 @@ class _AuthScreenState extends State<AuthScreen> {
                         child: Wrap(
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            const Text(
-                              'Acepto la ',
-                              style: TextStyle(fontSize: 13),
+                            Text(
+                              t.acceptPolicy,
+                              style: const TextStyle(fontSize: 13),
                             ),
                             GestureDetector(
                               onTap: () {
@@ -422,7 +461,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 );
                               },
                               child: Text(
-                                'Política de Tratamiento de Datos',
+                                t.privacyPolicy,
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: colorScheme.primary,
@@ -440,9 +479,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 const SizedBox(height: 16),
               ],
 
-              // ==============================================================
               // BOTÓN PRINCIPAL
-              // ==============================================================
               if (isLoading)
                 const CircularProgressIndicator()
               else
@@ -456,12 +493,10 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   ),
                   onPressed: _submitAuthForm,
-                  child: Text(isLogin ? 'Ingresar' : 'Registrar Cuenta'),
+                  child: Text(isLogin ? t.signIn : t.signUp),
                 ),
 
-              // ==============================================================
-              // LINK: OLVIDÉ MI CONTRASEÑA (solo login)
-              // ==============================================================
+              // LINK: OLVIDÉ MI CONTRASEÑA
               if (isLogin) ...[
                 const SizedBox(height: 8),
                 TextButton(
@@ -469,13 +504,11 @@ class _AuthScreenState extends State<AuthScreen> {
                     foregroundColor: colorScheme.primary,
                   ),
                   onPressed: _showResetPasswordDialog,
-                  child: const Text('¿Olvidaste tu contraseña?'),
+                  child: Text(t.forgotPassword),
                 ),
               ],
 
-              // ==============================================================
               // LINK: CAMBIAR ENTRE LOGIN/REGISTRO
-              // ==============================================================
               TextButton(
                 style: TextButton.styleFrom(
                   foregroundColor: colorScheme.primary,
@@ -484,14 +517,10 @@ class _AuthScreenState extends State<AuthScreen> {
                   setState(() {
                     isLogin = !isLogin;
                     if (isLogin) _acceptedPolicy = false;
-                    _obscurePassword = true; // Resetear el ojito
+                    _obscurePassword = true;
                   });
                 },
-                child: Text(
-                  isLogin
-                      ? '¿No tienes cuenta? Regístrate aquí'
-                      : '¿Ya tienes cuenta? Inicia sesión',
-                ),
+                child: Text(isLogin ? t.noAccount : t.haveAccount),
               ),
             ],
           ),

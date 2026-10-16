@@ -4,24 +4,29 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:file_picker/file_picker.dart'; // 👈 NUEVO
+import 'package:file_picker/file_picker.dart';
 
 import 'estudiante_screen.dart';
 import 'verificador_screen.dart';
 import '../services/pdf_service.dart';
 import '../services/excel_service.dart';
 import '../services/session_service.dart';
-import '../services/backup_service.dart'; // 👈 NUEVO
-import '/controllers/theme_controller.dart';
+import '../services/backup_service.dart';
+import '../services/log_service.dart';
+import '../controllers/theme_controller.dart';
+import '../controllers/locale_controller.dart';
+import '../l10n/app_localizations.dart'; // 👈 NUEVO
 import '../main.dart';
 
 class PrincipalScreen extends StatefulWidget {
   final ThemeController themeController;
+  final LocaleController localeController;
   final String userRole;
 
   const PrincipalScreen({
     super.key,
     required this.themeController,
+    required this.localeController,
     required this.userRole,
   });
 
@@ -30,14 +35,8 @@ class PrincipalScreen extends StatefulWidget {
 }
 
 class _PrincipalScreenState extends State<PrincipalScreen> {
-  // ==========================================================================
-  // CACHE DEL ROL
-  // ==========================================================================
   late String _cachedRole;
 
-  // ==========================================================================
-  // TIMERS DE SEGURIDAD
-  // ==========================================================================
   static const Duration _lockDuration = Duration(minutes: 2, seconds: 30);
   static const Duration _logoutDuration = Duration(minutes: 5);
 
@@ -47,14 +46,8 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   bool _isLocked = false;
   bool _isDownloading = false;
 
-  // ==========================================================================
-  // GETTER: Rol actual
-  // ==========================================================================
   String get _userRole => _cachedRole;
 
-  // ==========================================================================
-  // INITSTATE
-  // ==========================================================================
   @override
   void initState() {
     super.initState();
@@ -63,9 +56,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     SessionService.listenSessionChanges();
   }
 
-  // ==========================================================================
-  // DIDUPDATEWIDGET
-  // ==========================================================================
   @override
   void didUpdateWidget(PrincipalScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -74,9 +64,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     }
   }
 
-  // ==========================================================================
-  // DISPOSE
-  // ==========================================================================
   @override
   void dispose() {
     _lockTimer?.cancel();
@@ -85,9 +72,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     super.dispose();
   }
 
-  // ==========================================================================
-  // TIMERS
-  // ==========================================================================
   void _startTimers() {
     _lockTimer?.cancel();
     _logoutTimer?.cancel();
@@ -106,9 +90,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     _startTimers();
   }
 
-  // ==========================================================================
-  // CERRAR SESIÓN POR INACTIVIDAD
-  // ==========================================================================
   Future<void> _logoutDueToInactivity() async {
     if (!mounted) return;
 
@@ -119,13 +100,16 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
 
     if (mounted) setState(() => _isLocked = false);
 
+    await LogService.logLogoutInactivity();
+
     if (mounted) {
+      final t = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sesión cerrada por inactividad (5 minutos sin uso)'),
+        SnackBar(
+          content: Text(t.logoutInactivityMessage),
           backgroundColor: Colors.orange,
-          duration: Duration(seconds: 4),
+          duration: const Duration(seconds: 4),
         ),
       );
     }
@@ -134,9 +118,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     await FirebaseAuth.instance.signOut();
   }
 
-  // ==========================================================================
-  // DIÁLOGO DE BLOQUEO
-  // ==========================================================================
   void _showPasswordLockDialog() {
     setState(() => _isLocked = true);
 
@@ -152,13 +133,14 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final t = AppLocalizations.of(ctx)!;
             final colorScheme = Theme.of(ctx).colorScheme;
 
             Future<void> verifyPassword() async {
               final password = passwordController.text.trim();
 
               if (password.isEmpty) {
-                setDialogState(() => errorMessage = 'Ingresa tu contraseña');
+                setDialogState(() => errorMessage = t.enterPassword);
                 return;
               }
 
@@ -181,10 +163,10 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                     setState(() => _isLocked = false);
                     _startTimers();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('¡Desbloqueado!'),
+                      SnackBar(
+                        content: Text(t.unlocked),
                         backgroundColor: Colors.green,
-                        duration: Duration(seconds: 2),
+                        duration: const Duration(seconds: 2),
                       ),
                     );
                   }
@@ -194,34 +176,34 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                   isLoading = false;
                   errorMessage = (e.code == 'wrong-password' ||
                           e.code == 'invalid-credential')
-                      ? 'Contraseña incorrecta'
-                      : 'Error al verificar. Intenta de nuevo.';
+                      ? t.wrongPassword
+                      : t.verifyError;
                 });
               } catch (e) {
                 setDialogState(() {
                   isLoading = false;
-                  errorMessage = 'Error inesperado';
+                  errorMessage = t.unexpectedError;
                 });
               }
             }
 
             return PopScope(
               canPop: false,
-              onPopInvoked: (didPop) {},
+              onPopInvokedWithResult: (didPop, result) {},
               child: AlertDialog(
                 title: Row(
                   children: [
                     Icon(Icons.lock, color: colorScheme.primary),
                     const SizedBox(width: 8),
-                    const Expanded(child: Text('Sesión bloqueada')),
+                    Expanded(child: Text(t.sessionLocked)),
                   ],
                 ),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Por seguridad, ingresa tu contraseña para continuar.',
-                      style: TextStyle(fontSize: 13),
+                    Text(
+                      t.sessionLockedMessage,
+                      style: const TextStyle(fontSize: 13),
                     ),
                     const SizedBox(height: 16),
                     TextField(
@@ -230,7 +212,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                       autofocus: true,
                       enabled: !isLoading,
                       decoration: InputDecoration(
-                        labelText: 'Contraseña',
+                        labelText: t.password,
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.password),
                         errorText: errorMessage,
@@ -247,9 +229,10 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                         : () async {
                             Navigator.of(ctx).pop();
                             _isLocked = false;
+                            await LogService.logLogout();
                             await FirebaseAuth.instance.signOut();
                           },
-                    child: const Text('Cerrar sesión'),
+                    child: Text(t.logout),
                   ),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
@@ -266,7 +249,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : const Text('Desbloquear'),
+                        : Text(t.unlock),
                   ),
                 ],
               ),
@@ -277,13 +260,45 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     );
   }
 
-  // ==========================================================================
-  // ALTERNAR TEMA
-  // ==========================================================================
   void _toggleTheme() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     widget.themeController
         .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
+  }
+
+  void _showLanguageSelector() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
+              title: const Text('Español'),
+              trailing: widget.localeController.locale.languageCode == 'es'
+                  ? const Icon(Icons.check, color: Colors.green)
+                  : null,
+              onTap: () {
+                widget.localeController.setLocale(const Locale('es'));
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: const Text('🇺🇸', style: TextStyle(fontSize: 24)),
+              title: const Text('English'),
+              trailing: widget.localeController.locale.languageCode == 'en'
+                  ? const Icon(Icons.check, color: Colors.green)
+                  : null,
+              onTap: () {
+                widget.localeController.setLocale(const Locale('en'));
+                Navigator.pop(ctx);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ==========================================================================
@@ -292,13 +307,14 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   Future<void> _downloadPdf() async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
+    final t = AppLocalizations.of(context)!;
 
     try {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
@@ -306,11 +322,11 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 12),
-              Text('Generando PDF...'),
+              const SizedBox(width: 12),
+              Text(t.generatingPdf),
             ],
           ),
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
 
@@ -331,7 +347,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al generar PDF: $e'),
+            content: Text('Error: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -347,13 +363,14 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   Future<void> _downloadExcel() async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
+    final t = AppLocalizations.of(context)!;
 
     try {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
@@ -361,11 +378,11 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 12),
-              Text('Generando Excel...'),
+              const SizedBox(width: 12),
+              Text(t.generatingExcel),
             ],
           ),
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
 
@@ -386,7 +403,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al generar Excel: $e'),
+            content: Text('Error: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -402,13 +419,14 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   Future<void> _createBackup() async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
+    final t = AppLocalizations.of(context)!;
 
     try {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
@@ -416,26 +434,27 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 12),
-              Text('Creando backup...'),
+              const SizedBox(width: 12),
+              Text(t.creatingBackup),
             ],
           ),
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
 
       final file = await BackupService.createBackup();
+      await LogService.logBackup();
 
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/json')],
         subject: 'Backup TareaLog',
-        text: 'Backup completo generado desde TareaLog',
+        text: 'Backup generado desde TareaLog',
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Backup generado correctamente'),
+          SnackBar(
+            content: Text(t.backupCreated),
             backgroundColor: Colors.green,
           ),
         );
@@ -444,7 +463,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al crear backup: $e'),
+            content: Text('Error: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -459,49 +478,42 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
   // ==========================================================================
   Future<void> _restoreBackup() async {
     if (_isDownloading) return;
+    final t = AppLocalizations.of(context)!;
 
     try {
-      // 1. El usuario elige el archivo JSON
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
-        dialogTitle: 'Selecciona el archivo de backup',
+        dialogTitle: t.restoreBackup,
       );
 
-      if (result == null || result.files.single.path == null) {
-        return; // Usuario canceló
-      }
-
+      if (result == null || result.files.single.path == null) return;
       final file = File(result.files.single.path!);
 
-      // 2. Confirmar con el usuario antes de restaurar
       if (!mounted) return;
 
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Restaurar Backup'),
+              const Icon(Icons.warning, color: Colors.orange),
+              const SizedBox(width: 8),
+              Text(t.restoreBackup),
             ],
           ),
-          content: const Text(
-            '⚠️ Se sobrescribirán los datos actuales con los del backup.\n\n'
-            '¿Deseas continuar?',
-          ),
+          content: Text(t.restoreWarning),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text(
-                'Restaurar',
-                style: TextStyle(color: Colors.white),
+              child: Text(
+                t.restore,
+                style: const TextStyle(color: Colors.white),
               ),
             ),
           ],
@@ -510,15 +522,14 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
 
       if (confirm != true) return;
 
-      // 3. Mostrar loading y restaurar
       setState(() => _isDownloading = true);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Row(
               children: [
-                SizedBox(
+                const SizedBox(
                   width: 20,
                   height: 20,
                   child: CircularProgressIndicator(
@@ -526,23 +537,24 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                     color: Colors.white,
                   ),
                 ),
-                SizedBox(width: 12),
-                Text('Restaurando backup...'),
+                const SizedBox(width: 12),
+                Text(t.restoringBackup),
               ],
             ),
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
 
       final resumen = await BackupService.restoreBackup(file);
+      await LogService.logRestore(resumen['tasksRestored'] ?? 0);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '✅ Backup restaurado:\n'
-              '${resumen['tasksRestored']} tareas recuperadas',
+              '✅ ${t.backupRestored}\n'
+              '${resumen['tasksRestored']} tareas',
             ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 4),
@@ -553,7 +565,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al restaurar: $e'),
+            content: Text('Error: $e'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
           ),
@@ -564,11 +576,17 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
     }
   }
 
+  Future<void> _handleLogout() async {
+    await LogService.logLogout();
+    await FirebaseAuth.instance.signOut();
+  }
+
   // ==========================================================================
   // BUILD
   // ==========================================================================
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final appBarForegroundColor =
         Theme.of(context).appBarTheme.foregroundColor ?? Colors.white;
@@ -581,9 +599,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'TareaLog',
-              style: TextStyle(
+            Text(
+              t.appTitle,
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.5,
@@ -598,9 +616,6 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
           ],
         ),
         actions: [
-          // ==============================================================
-          // MENÚ DE OPCIONES (PDF / Excel / Backup / Restaurar)
-          // ==============================================================
           PopupMenuButton<String>(
             icon: _isDownloading
                 ? SizedBox(
@@ -612,7 +627,7 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                     ),
                   )
                 : const Icon(Icons.more_vert),
-            tooltip: 'Opciones',
+            tooltip: t.download,
             enabled: !_isDownloading,
             onSelected: (value) {
               if (value == 'pdf') {
@@ -626,67 +641,63 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
               }
             },
             itemBuilder: (context) => [
-              // --- Reportes ---
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'pdf',
                 child: Row(
                   children: [
-                    Icon(Icons.picture_as_pdf, color: Colors.red),
-                    SizedBox(width: 12),
-                    Text('Descargar PDF'),
+                    const Icon(Icons.picture_as_pdf, color: Colors.red),
+                    const SizedBox(width: 12),
+                    Text(t.downloadPdf),
                   ],
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'excel',
                 child: Row(
                   children: [
-                    Icon(Icons.table_chart, color: Colors.green),
-                    SizedBox(width: 12),
-                    Text('Descargar Excel'),
+                    const Icon(Icons.table_chart, color: Colors.green),
+                    const SizedBox(width: 12),
+                    Text(t.downloadExcel),
                   ],
                 ),
               ),
-
-              // --- Separador ---
               const PopupMenuDivider(),
-
-              // --- Backup ---
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'backup',
                 child: Row(
                   children: [
-                    Icon(Icons.backup, color: Colors.blue),
-                    SizedBox(width: 12),
-                    Text('Hacer Backup'),
+                    const Icon(Icons.backup, color: Colors.blue),
+                    const SizedBox(width: 12),
+                    Text(t.createBackup),
                   ],
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'restore',
                 child: Row(
                   children: [
-                    Icon(Icons.restore, color: Colors.orange),
-                    SizedBox(width: 12),
-                    Text('Restaurar Backup'),
+                    const Icon(Icons.restore, color: Colors.orange),
+                    const SizedBox(width: 12),
+                    Text(t.restoreBackup),
                   ],
                 ),
               ),
             ],
           ),
-
-          // Botón de tema
+          IconButton(
+            icon: const Icon(Icons.language),
+            tooltip: t.changeLanguage,
+            onPressed: _showLanguageSelector,
+          ),
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-            tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
+            tooltip: isDark ? t.lightMode : t.darkMode,
             onPressed: _toggleTheme,
           ),
-
-          // Botón de cerrar sesión
           IconButton(
             icon: const Icon(Icons.exit_to_app),
-            tooltip: 'Cerrar sesión',
-            onPressed: () => FirebaseAuth.instance.signOut(),
+            tooltip: t.logout,
+            onPressed: _handleLogout,
           ),
         ],
       ),

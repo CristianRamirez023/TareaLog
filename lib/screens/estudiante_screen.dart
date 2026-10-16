@@ -1,7 +1,21 @@
+// ============================================================================
+// PANTALLA DEL ESTUDIANTE
+// ----------------------------------------------------------------------------
+// - Saludo + Banner de vinculación
+// - Barra de progreso general
+// - Estadísticas (Pendientes/Aprobadas/Rechazadas)
+// - Lista de tareas COLAPSABLE
+// - CRUD de tareas
+// - Registro de logs de auditoría
+// - Traducciones (Español / Inglés)
+// ============================================================================
+
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../l10n/app_localizations.dart'; // 👈 NUEVO
+import '../services/log_service.dart';
 
 class EstudianteScreen extends StatefulWidget {
   const EstudianteScreen({super.key});
@@ -31,6 +45,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    final t = AppLocalizations.of(context)!;
     final newCode = 'TRG-${_generateShortCode()}';
 
     try {
@@ -41,13 +56,13 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Nuevo código generado: $newCode')),
+          SnackBar(content: Text(t.generateNewCode(newCode))),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error al generar el código')),
+          SnackBar(content: Text(t.errorGeneratingCode)),
         );
       }
     }
@@ -62,6 +77,8 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     final user = FirebaseAuth.instance.currentUser;
 
     if (title.isEmpty || user == null) return;
+
+    final t = AppLocalizations.of(context)!;
 
     try {
       final userDoc = await FirebaseFirestore.instance
@@ -82,13 +99,15 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
         'createdAt': Timestamp.now(),
       });
 
+      await LogService.logTaskCreate(title);
+
       _taskTitleController.clear();
       _taskDescController.clear();
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error al crear la tarea')),
+          SnackBar(content: Text(t.errorCreatingTask)),
         );
       }
     }
@@ -98,17 +117,54 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
   // TOGGLE ESTADO DE TAREA
   // ==========================================================================
   Future<void> _toggleTaskStatus(String taskId, bool currentStatus) async {
-    await FirebaseFirestore.instance
-        .collection('tasks')
-        .doc(taskId)
-        .update({'isCompleted': !currentStatus});
+    final t = AppLocalizations.of(context)!;
+    try {
+      final taskDoc = await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(taskId)
+          .get();
+      final title = taskDoc.data()?['title'] ?? 'Sin título';
+
+      await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(taskId)
+          .update({'isCompleted': !currentStatus});
+
+      await LogService.logTaskComplete(title, !currentStatus);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(t.errorUpdatingTask)),
+        );
+      }
+    }
   }
 
   // ==========================================================================
   // ELIMINAR TAREA
   // ==========================================================================
   Future<void> _deleteTask(String taskId) async {
-    await FirebaseFirestore.instance.collection('tasks').doc(taskId).delete();
+    final t = AppLocalizations.of(context)!;
+    try {
+      final taskDoc = await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(taskId)
+          .get();
+      final title = taskDoc.data()?['title'] ?? 'Sin título';
+
+      await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(taskId)
+          .delete();
+
+      await LogService.logTaskDelete(title);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(t.errorDeletingTask)),
+        );
+      }
+    }
   }
 
   // ==========================================================================
@@ -118,25 +174,26 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
     showDialog(
       context: context,
       builder: (ctx) {
+        final t = AppLocalizations.of(ctx)!;
         final colorScheme = Theme.of(ctx).colorScheme;
         return AlertDialog(
-          title: const Text('Nueva Tarea'),
+          title: Text(t.newTask),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: _taskTitleController,
-                decoration: const InputDecoration(
-                  labelText: 'Título de la tarea',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: t.taskTitle,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _taskDescController,
-                decoration: const InputDecoration(
-                  labelText: 'Descripción (Opcional)',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: t.taskDescription,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
@@ -145,7 +202,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
             TextButton(
               style: TextButton.styleFrom(foregroundColor: colorScheme.primary),
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancelar'),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -153,7 +210,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                 foregroundColor: colorScheme.onPrimary,
               ),
               onPressed: _addTask,
-              child: const Text('Guardar'),
+              child: Text(t.save),
             ),
           ],
         );
@@ -165,6 +222,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
   // 📊 CARD DE PROGRESO GENERAL
   // ==========================================================================
   Widget _buildProgressCard(int total, int completadas) {
+    final t = AppLocalizations.of(context)!;
     final double progress = total == 0 ? 0 : completadas / total;
     final int percentage = (progress * 100).round();
 
@@ -194,9 +252,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                   children: [
                     Icon(Icons.trending_up, color: progressColor, size: 22),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Progreso general',
-                      style: TextStyle(
+                    Text(
+                      t.progress,
+                      style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
@@ -228,14 +286,14 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '$completadas de $total tareas completadas',
+                  '$completadas/$total ${t.tasks}',
                   style: TextStyle(
                     fontSize: 12,
                     color: colorScheme.onSurface.withOpacity(0.7),
                   ),
                 ),
                 Text(
-                  _getProgressMessage(percentage),
+                  _getProgressMessage(t, percentage),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -253,17 +311,17 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
   // ==========================================================================
   // 💬 MENSAJE MOTIVACIONAL
   // ==========================================================================
-  String _getProgressMessage(int percentage) {
-    if (percentage == 0) return '¡Empieza ya! 💪';
-    if (percentage < 30) return '¡Vas empezando! 🚀';
-    if (percentage < 50) return '¡Buen ritmo! 🔥';
-    if (percentage < 70) return '¡Vas muy bien! ⭐';
-    if (percentage < 100) return '¡Casi lo logras! 🎯';
-    return '¡Completado! 🏆';
+  String _getProgressMessage(AppLocalizations t, int percentage) {
+    if (percentage == 0) return t.startNow;
+    if (percentage < 30) return t.startingOut;
+    if (percentage < 50) return t.goodPace;
+    if (percentage < 70) return t.doingGreat;
+    if (percentage < 100) return t.almostThere;
+    return t.completed;
   }
 
   // ==========================================================================
-  // 🎴 CARD DE ESTADÍSTICA INDIVIDUAL
+  // 🎴 CARD DE ESTADÍSTICA
   // ==========================================================================
   Widget _buildStatCard(
       String label, int count, Color color, IconData icon) {
@@ -301,10 +359,21 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
   // ==========================================================================
   Widget _buildTaskTile(
       QueryDocumentSnapshot taskDoc, ColorScheme colorScheme) {
+    final t = AppLocalizations.of(context)!;
     final taskData = taskDoc.data() as Map<String, dynamic>;
     final bool isCompleted = taskData['isCompleted'] ?? false;
     final String status = taskData['status'] ?? 'Pendiente';
     final String feedback = taskData['feedback'] ?? '';
+
+    // Traducir el estado
+    String translatedStatus;
+    if (status == 'Aprobado') {
+      translatedStatus = t.approved;
+    } else if (status == 'Rechazado') {
+      translatedStatus = t.rejected;
+    } else {
+      translatedStatus = t.pending;
+    }
 
     return Card(
       elevation: 2,
@@ -331,7 +400,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                 taskData['description'].toString().isNotEmpty)
               Text(taskData['description']),
             Text(
-              'Estado: $status',
+              '${t.status}: $translatedStatus',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
@@ -342,7 +411,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
             ),
             if (feedback.isNotEmpty)
               Text(
-                'Obs: $feedback',
+                '${t.observationsLabel(feedback)}',
                 style: const TextStyle(
                   fontSize: 12,
                   fontStyle: FontStyle.italic,
@@ -360,30 +429,31 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
 
   // ==========================================================================
   // 📋 SECCIÓN COLAPSABLE DE TAREAS
-  // ✅ Con PageStorageKey para recordar el estado al cambiar de tema
   // ==========================================================================
   Widget _buildTasksSection(
       List<QueryDocumentSnapshot> tasks, ColorScheme colorScheme) {
+    final t = AppLocalizations.of(context)!;
     return Card(
       elevation: 3,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: ExpansionTile(
-        // 👇 Guarda el estado de expansión en la memoria de la página
         key: const PageStorageKey('tasks_section'),
         initiallyExpanded: true,
         leading: Icon(
           Icons.assignment,
           color: colorScheme.primary,
         ),
-        title: const Text(
-          'Mis Tareas',
-          style: TextStyle(
+        title: Text(
+          t.myTasks,
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
           ),
         ),
         subtitle: Text(
-          '${tasks.length} ${tasks.length == 1 ? "tarea" : "tareas"}',
+          tasks.length == 1
+              ? t.tasksCountOne
+              : t.tasksCount(tasks.length),
           style: const TextStyle(fontSize: 12),
         ),
         children: [
@@ -406,6 +476,7 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
   // ==========================================================================
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
     final user = FirebaseAuth.instance.currentUser;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -432,7 +503,6 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
 
                 return Column(
                   children: [
-                    // ----- Saludo con avatar -----
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       child: Row(
@@ -452,9 +522,9 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'Bienvenido de vuelta,',
-                                  style: TextStyle(fontSize: 12),
+                                Text(
+                                  t.welcomeUser,
+                                  style: const TextStyle(fontSize: 12),
                                 ),
                                 Text(
                                   name,
@@ -469,8 +539,6 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                         ],
                       ),
                     ),
-
-                    // ----- Banner de vinculación -----
                     Card(
                       margin: const EdgeInsets.symmetric(horizontal: 12),
                       color: colorScheme.primaryContainer,
@@ -491,8 +559,8 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                                 children: [
                                   Text(
                                     verifierId != null
-                                        ? 'Verificador Vinculado'
-                                        : 'Código de Vinculación',
+                                        ? t.verifierLinked
+                                        : t.bindingCode,
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: colorScheme.onPrimaryContainer,
@@ -500,10 +568,10 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                                   ),
                                   Text(
                                     verifierId != null
-                                        ? 'Tus tareas serán revisadas por tu evaluador.'
+                                        ? '...'
                                         : (inviteCode != null
-                                            ? 'Comparte este código: $inviteCode'
-                                            : 'Genera un código para enlazar tu evaluador.'),
+                                            ? '${t.bindingCode}: $inviteCode'
+                                            : '...'),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: colorScheme.onPrimaryContainer,
@@ -520,7 +588,10 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                                 ),
                                 onPressed: _createBindingCode,
                                 child: Text(
-                                    inviteCode == null ? 'Generar' : 'Nuevo'),
+                                  inviteCode == null
+                                      ? t.generateCodeButton
+                                      : t.newCodeButton,
+                                ),
                               ),
                           ],
                         ),
@@ -566,37 +637,32 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                   final int totalTasks = tasks.length;
                   final int completedTasks = aprobadas;
 
-                  // ==================================================
-                  // SINGLE CHILD SCROLL VIEW
-                  // ==================================================
                   return SingleChildScrollView(
                     child: Column(
                       children: [
-                        // Barra de progreso
                         if (tasks.isNotEmpty)
                           _buildProgressCard(totalTasks, completedTasks),
 
-                        // Estadísticas
                         Padding(
                           padding: const EdgeInsets.all(12),
                           child: Row(
                             children: [
                               _buildStatCard(
-                                'Pendientes',
+                                t.pending,
                                 pendientes,
                                 Colors.orange,
                                 Icons.pending_actions,
                               ),
                               const SizedBox(width: 8),
                               _buildStatCard(
-                                'Aprobadas',
+                                t.approved,
                                 aprobadas,
                                 Colors.green,
                                 Icons.check_circle,
                               ),
                               const SizedBox(width: 8),
                               _buildStatCard(
-                                'Rechazadas',
+                                t.rejected,
                                 rechazadas,
                                 Colors.red,
                                 Icons.cancel,
@@ -605,14 +671,13 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                           ),
                         ),
 
-                        // Lista colapsable o mensaje vacío
                         if (tasks.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.all(40),
+                          Padding(
+                            padding: const EdgeInsets.all(40),
                             child: Text(
-                              'No tienes tareas aún.\n¡Presiona + para agregar una!',
+                              t.noTasksYet,
                               textAlign: TextAlign.center,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 16,
                                 color: Colors.grey,
                               ),
@@ -621,7 +686,6 @@ class _EstudianteScreenState extends State<EstudianteScreen> {
                         else
                           _buildTasksSection(tasks, colorScheme),
 
-                        // Espacio para que el FAB no tape contenido
                         const SizedBox(height: 80),
                       ],
                     ),

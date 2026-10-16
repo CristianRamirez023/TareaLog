@@ -2,12 +2,15 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // 👈 Importante
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
 import 'firebase_options.dart';
 import 'screens/auth_screen.dart';
 import 'screens/principal_screen.dart';
 import 'controllers/theme_controller.dart';
+import 'controllers/locale_controller.dart'; // 👈 NUEVO
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -35,6 +38,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final ThemeController _themeController = ThemeController();
+  final LocaleController _localeController = LocaleController(); // 👈 NUEVO
 
   static const Color _azulOscuro = Color(0xFF0D47A1);
   static const Color _azulClaro = Color(0xFF64B5F6);
@@ -42,14 +46,34 @@ class _MyAppState extends State<MyApp> {
   static const Color _azulSuave = Color(0xFF90CAF9);
 
   @override
+  void initState() {
+    super.initState();
+    // 👇 Cargar el idioma guardado
+    _localeController.loadLocale();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _themeController,
+      animation: Listenable.merge([_themeController, _localeController]),
       builder: (context, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'TareaLog',
           navigatorKey: navigatorKey,
+
+          // 👇 CONFIGURACIÓN DE IDIOMAS
+          locale: _localeController.locale,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('es'),
+            Locale('en'),
+          ],
 
           // ☀️ TEMA CLARO
           theme: ThemeData(
@@ -91,18 +115,15 @@ class _MyAppState extends State<MyApp> {
 
           themeMode: _themeController.themeMode,
 
-          // 🚦 GUARDIÁN DE RUTAS
           home: StreamBuilder<User?>(
             stream: FirebaseAuth.instance.authStateChanges(),
             builder: (context, snapshot) {
-              // Mientras verifica → loading
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Scaffold(
                   body: Center(child: CircularProgressIndicator()),
                 );
               }
 
-              // Si hay usuario → cargar su rol y mostrar PrincipalScreen
               if (snapshot.hasData) {
                 return FutureBuilder<DocumentSnapshot>(
                   future: FirebaseFirestore.instance
@@ -123,14 +144,17 @@ class _MyAppState extends State<MyApp> {
 
                     return PrincipalScreen(
                       themeController: _themeController,
-                      userRole: role, // 👈 Pasar el rol
+                      localeController: _localeController, // 👈 Pasar el controller
+                      userRole: role,
                     );
                   },
                 );
               }
 
-              // Si NO hay usuario → AuthScreen
-              return AuthScreen(themeController: _themeController);
+              return AuthScreen(
+                themeController: _themeController,
+                localeController: _localeController, // 👈 Pasar el controller
+              );
             },
           ),
         );
