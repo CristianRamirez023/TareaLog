@@ -1,22 +1,9 @@
-// ============================================================================
-// PANTALLA DE AUTENTICACIÓN (LOGIN / REGISTRO)
-// ----------------------------------------------------------------------------
-// - Login y registro con Firebase Auth
-// - Verificación con CAPTCHA visual antes de continuar
-// - Aceptación de Política de Datos (solo registro)
-// - Toggle de tema claro/oscuro
-// - Mostrar/ocultar contraseña con ojito
-// - Registro de sesión única (evita múltiples dispositivos)
-// - Registro de logs de auditoría
-// - Cambio de idioma (Español / Inglés)
-// ============================================================================
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '/controllers/theme_controller.dart';
 import '/controllers/locale_controller.dart';
-import '../l10n/app_localizations.dart'; // 👈 NUEVO
+import '../l10n/app_localizations.dart';
 import '../widgets/recaptcha_dialog.dart';
 import '../services/session_service.dart';
 import '../services/log_service.dart';
@@ -57,6 +44,30 @@ class _AuthScreenState extends State<AuthScreen> {
   String _selectedRole = 'Estudiante';
 
   // ==========================================================================
+  // 🔐 VALIDAR POLÍTICA DE CONTRASEÑAS
+  // Requisitos: 12 chars, 1 Mayus, 1 minus, 1 especial, 3 numeros
+  // ==========================================================================
+  String? _validatePasswordPolicy(String password) {
+    if (password.length < 12) {
+      return 'La contraseña debe tener al menos 12 caracteres.';
+    }
+    if (!password.contains(RegExp(r'[A-Z]'))) {
+      return 'Debe incluir al menos una letra mayúscula.';
+    }
+    if (!password.contains(RegExp(r'[a-z]'))) {
+      return 'Debe incluir al menos una letra minúscula.';
+    }
+    if (!password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) {
+      return 'Debe incluir al menos un carácter especial (!@#\$%^&*...).';
+    }
+    // Busca al menos 3 números en cualquier posición
+    if (!password.contains(RegExp(r'[0-9].*[0-9].*[0-9]'))) {
+      return 'Debe incluir al menos 3 números.';
+    }
+    return null; // ✅ Contraseña válida
+  }
+
+  // ==========================================================================
   // ENVÍO DEL FORMULARIO
   // ==========================================================================
   Future<void> _submitAuthForm() async {
@@ -65,7 +76,7 @@ class _AuthScreenState extends State<AuthScreen> {
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
 
-    // ---------- VALIDACIONES ----------
+    // ---------- VALIDACIONES BÁSICAS ----------
     if (email.isEmpty || password.isEmpty) {
       _showSnackBar('Por favor llena todos los campos', isError: true);
       return;
@@ -84,7 +95,16 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    // CAPTCHA
+    // ---------- VALIDACIÓN DE CONTRASEÑA (solo registro) ----------
+    if (!isLogin) {
+      final passwordError = _validatePasswordPolicy(password);
+      if (passwordError != null) {
+        _showSnackBar(passwordError, isError: true);
+        return;
+      }
+    }
+
+    // ---------- CAPTCHA VISUAL ----------
     final captchaPassed = await RecaptchaDialog.show(context);
 
     if (!captchaPassed) {
@@ -92,6 +112,7 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
+    // ---------- LOGIN / REGISTRO ----------
     setState(() => isLoading = true);
 
     try {
@@ -139,7 +160,7 @@ class _AuthScreenState extends State<AuthScreen> {
       } else if (e.code == 'email-already-in-use') {
         mensajeError = 'Este correo ya se encuentra registrado.';
       } else if (e.code == 'weak-password') {
-        mensajeError = 'La contraseña debe tener al menos 6 caracteres.';
+        mensajeError = 'La contraseña es muy débil.';
       }
 
       _showSnackBar(mensajeError, isError: true);
@@ -294,7 +315,7 @@ class _AuthScreenState extends State<AuthScreen> {
   // ==========================================================================
   @override
   Widget build(BuildContext context) {
-    final t = AppLocalizations.of(context)!; // 👈 Traducciones
+    final t = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -379,6 +400,20 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
               ),
+              
+              // 👇 TEXTO DE AYUDA PARA LA CONTRASEÑA (SOLO EN REGISTRO)
+              if (!isLogin) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Mínimo 12 caracteres, 1 mayúscula, 1 minúscula, 1 símbolo y 3 números.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+              
               const SizedBox(height: 12),
 
               // CAMPOS EXCLUSIVOS DEL REGISTRO
@@ -402,7 +437,6 @@ class _AuthScreenState extends State<AuthScreen> {
                     prefixIcon: const Icon(Icons.badge),
                   ),
                   items: _roles.map((String role) {
-                    // Traducir el rol
                     final roleLabel = role == 'Estudiante'
                         ? t.student
                         : t.verifier;
@@ -419,7 +453,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Checkbox de política
+                // Checkbox de política de datos
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -496,7 +530,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   child: Text(isLogin ? t.signIn : t.signUp),
                 ),
 
-              // LINK: OLVIDÉ MI CONTRASEÑA
+              // LINK: OLVIDÉ MI CONTRASEÑA (solo login)
               if (isLogin) ...[
                 const SizedBox(height: 8),
                 TextButton(
