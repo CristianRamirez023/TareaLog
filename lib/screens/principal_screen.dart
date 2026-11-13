@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 
 import 'estudiante_screen.dart';
 import 'verificador_screen.dart';
+import 'logs_screen.dart'; // 👈 IMPORT DE LA NUEVA PANTALLA
 import '../services/pdf_service.dart';
 import '../services/excel_service.dart';
 import '../services/session_service.dart';
@@ -15,7 +16,7 @@ import '../services/backup_service.dart';
 import '../services/log_service.dart';
 import '../controllers/theme_controller.dart';
 import '../controllers/locale_controller.dart';
-import '../l10n/app_localizations.dart'; // 👈 NUEVO
+import '../l10n/app_localizations.dart';
 import '../main.dart';
 
 class PrincipalScreen extends StatefulWidget {
@@ -616,6 +617,9 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
           ],
         ),
         actions: [
+          // ==============================================================
+          // MENÚ DESPLEGABLE (⋮)
+          // ==============================================================
           PopupMenuButton<String>(
             icon: _isDownloading
                 ? SizedBox(
@@ -638,6 +642,12 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                 _createBackup();
               } else if (value == 'restore') {
                 _restoreBackup();
+              } else if (value == 'logs') {
+                // 👈 NUEVO: Acción para abrir los logs
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (ctx) => const LogsScreen()),
+                );
               }
             },
             itemBuilder: (context) => [
@@ -682,18 +692,38 @@ class _PrincipalScreenState extends State<PrincipalScreen> {
                   ],
                 ),
               ),
+              // 👇 NUEVO: Opción de historial en el menú (solo para verificador)
+              if (isVerifier) ...[
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'logs',
+                  child: Row(
+                    children: [
+                      Icon(Icons.history, color: Colors.blue),
+                      SizedBox(width: 12),
+                      Text('Ver Actividad'),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
+          
+          // Botón de idioma
           IconButton(
             icon: const Icon(Icons.language),
             tooltip: t.changeLanguage,
             onPressed: _showLanguageSelector,
           ),
+          
+          // Botón de tema
           IconButton(
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
             tooltip: isDark ? t.lightMode : t.darkMode,
             onPressed: _toggleTheme,
           ),
+          
+          // Botón de salir
           IconButton(
             icon: const Icon(Icons.exit_to_app),
             tooltip: t.logout,
