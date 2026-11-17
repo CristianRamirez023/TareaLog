@@ -1,0 +1,43 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: 
+
+jobs:
+  security-scan:
+    name: Dart SAST & Flutter Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run Flutter Analyze
+        run: flutter analyze
+
+      - name: Run Dart SAST Scan
+        uses: maierj/dart-sast-action@v1
+        with:
+          format: 'sarif'
+          output: 'dart-sast-results.sarif'
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'dart-sast-results.sarif'
